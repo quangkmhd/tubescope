@@ -1,0 +1,194 @@
+[
+  {
+    "id": "1",
+    "title": "Film & Animation",
+    "label": "Phim & hoạt hình",
+    "legacy": false
+  },
+  {
+    "id": "2",
+    "title": "Autos & Vehicles",
+    "label": "Ô tô & phương tiện",
+    "legacy": false
+  },
+  {
+    "id": "10",
+    "title": "Music",
+    "label": "Âm nhạc",
+    "legacy": false
+  },
+  {
+    "id": "15",
+    "title": "Pets & Animals",
+    "label": "Thú cưng & động vật",
+    "legacy": false
+  },
+  {
+    "id": "17",
+    "title": "Sports",
+    "label": "Thể thao",
+    "legacy": false
+  },
+  {
+    "id": "18",
+    "title": "Short Movies",
+    "label": "Phim ngắn",
+    "legacy": true
+  },
+  {
+    "id": "19",
+    "title": "Travel & Events",
+    "label": "Du lịch & sự kiện",
+    "legacy": false
+  },
+  {
+    "id": "20",
+    "title": "Gaming",
+    "label": "Trò chơi",
+    "legacy": false
+  },
+  {
+    "id": "21",
+    "title": "Videoblogging",
+    "label": "Video blog",
+    "legacy": true
+  },
+  {
+    "id": "22",
+    "title": "People & Blogs",
+    "label": "Con người & blog",
+    "legacy": false
+  },
+  {
+    "id": "23",
+    "title": "Comedy",
+    "label": "Hài",
+    "legacy": false
+  },
+  {
+    "id": "24",
+    "title": "Entertainment",
+    "label": "Giải trí",
+    "legacy": false
+  },
+  {
+    "id": "25",
+    "title": "News & Politics",
+    "label": "Tin tức & chính trị",
+    "legacy": false
+  },
+  {
+    "id": "26",
+    "title": "Howto & Style",
+    "label": "Hướng dẫn & phong cách",
+    "legacy": false
+  },
+  {
+    "id": "27",
+    "title": "Education",
+    "label": "Giáo dục",
+    "legacy": false
+  },
+  {
+    "id": "28",
+    "title": "Science & Technology",
+    "label": "Khoa học & công nghệ",
+    "legacy": false
+  },
+  {
+    "id": "29",
+    "title": "Nonprofits & Activism",
+    "label": "Phi lợi nhuận & hoạt động xã hội",
+    "legacy": false
+  },
+  {
+    "id": "30",
+    "title": "Movies",
+    "label": "Phim",
+    "legacy": true
+  },
+  {
+    "id": "31",
+    "title": "Anime/Animation",
+    "label": "Anime / hoạt hình",
+    "legacy": true
+  },
+  {
+    "id": "32",
+    "title": "Action/Adventure",
+    "label": "Hành động / phiêu lưu",
+    "legacy": true
+  },
+  {
+    "id": "33",
+    "title": "Classics",
+    "label": "Phim kinh điển",
+    "legacy": true
+  },
+  {
+    "id": "34",
+    "title": "Comedy",
+    "label": "Phim hài",
+    "legacy": true
+  },
+  {
+    "id": "35",
+    "title": "Documentary",
+    "label": "Phim tài liệu",
+    "legacy": true
+  },
+  {
+    "id": "36",
+    "title": "Drama",
+    "label": "Chính kịch",
+    "legacy": true
+  },
+  {
+    "id": "37",
+    "title": "Family",
+    "label": "Gia đình",
+    "legacy": true
+  },
+  {
+    "id": "38",
+    "title": "Foreign",
+    "label": "Phim nước ngoài",
+    "legacy": true
+  },
+  {
+    "id": "39",
+    "title": "Horror",
+    "label": "Kinh dị",
+    "legacy": true
+  },
+  {
+    "id": "40",
+    "title": "Sci-Fi/Fantasy",
+    "label": "Khoa học viễn tưởng / kỳ ảo",
+    "legacy": true
+  },
+  {
+    "id": "41",
+    "title": "Thriller",
+    "label": "Giật gân",
+    "legacy": true
+  },
+  {
+    "id": "42",
+    "title": "Shorts",
+    "label": "Danh mục Shorts cũ",
+    "legacy": true
+  },
+  {
+    "id": "43",
+    "title": "Shows",
+    "label": "Chương trình",
+    "legacy": true
+  },
+  {
+    "id": "44",
+    "title": "Trailers",
+    "label": "Trailer",
+    "legacy": true
+  }
+]
