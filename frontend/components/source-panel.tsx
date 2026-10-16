@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { NativeSelect, NativeSelectOption, NativeSelectOptGroup } from '@/components/ui/native-select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Field, FieldLabel, FieldDescription, FieldGroup, FieldSet, FieldLegend } from '@/components/ui/field';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
@@ -66,7 +67,24 @@ export function SourcePanel({ catalog, onJob }: { catalog?: Catalog; onJob: (job
           <FieldSet><FieldLegend variant="label">Thời lượng (phút)</FieldLegend><FieldGroup className="range-fields"><Field><FieldLabel htmlFor="duration-min" className="sr-only">Thời lượng tối thiểu (phút)</FieldLabel><Input id="duration-min" name="duration_min" type="number" min="0" step="0.1" value={form.duration_min} onChange={e => update('duration_min', e.target.value)} placeholder="Từ…" /></Field><span aria-hidden="true">–</span><Field><FieldLabel htmlFor="duration-max" className="sr-only">Thời lượng tối đa (phút)</FieldLabel><Input id="duration-max" name="duration_max" type="number" min="0" step="0.1" value={form.duration_max} onChange={e => update('duration_max', e.target.value)} placeholder="Đến…" /></Field></FieldGroup></FieldSet>
           <SelectField id="views-preset" label="Mốc lượt xem tối thiểu" value={form.views_min || 'all'} onChange={v => update('views_min', v === 'all' ? '' : v)} options={[[ 'all', 'Mọi lượt xem'], ['1000', 'Từ 1.000'], ['10000', 'Từ 10.000'], ['100000', 'Từ 100.000'], ['1000000', 'Từ 1.000.000'], ...(!['','1000','10000','100000','1000000'].includes(form.views_min) ? [[form.views_min, 'Tùy chỉnh']] as [string,string][] : [])]} />
           <FieldSet><FieldLegend variant="label">Lượt xem</FieldLegend><FieldGroup className="range-fields"><Field><FieldLabel htmlFor="views-min" className="sr-only">Lượt xem tối thiểu</FieldLabel><Input id="views-min" name="views_min" type="number" min="0" value={form.views_min} onChange={e => update('views_min', e.target.value)} placeholder="Từ…" /></Field><span aria-hidden="true">–</span><Field><FieldLabel htmlFor="views-max" className="sr-only">Lượt xem tối đa</FieldLabel><Input id="views-max" name="views_max" type="number" min="0" value={form.views_max} onChange={e => update('views_max', e.target.value)} placeholder="Đến…" /></Field></FieldGroup></FieldSet>
-          <Field><FieldLabel htmlFor="category">Danh mục</FieldLabel><NativeSelect id="category" name="category" value={form.category} onChange={e => update('category', e.target.value)}><NativeSelectOptGroup label="Phạm vi"><NativeSelectOption value="">Tất cả danh mục</NativeSelectOption><NativeSelectOption value="unknown">Chưa có danh mục</NativeSelectOption></NativeSelectOptGroup><NativeSelectOptGroup label="Danh mục YouTube (bản lưu)">{catalog?.categories.map(item => <NativeSelectOption key={item.id} value={item.id}>{item.label || item.title}{item.legacy ? ' (lịch sử)' : ''}</NativeSelectOption>)}</NativeSelectOptGroup></NativeSelect><FieldDescription>Danh mục lưu sẵn, không phải danh sách trực tiếp theo khu vực.</FieldDescription></Field>
+          <Field>
+            <FieldLabel htmlFor="category">Danh mục</FieldLabel>
+            <Select name="category" value={form.category || 'all'} onValueChange={value => update('category', value === 'all' ? '' : value)}>
+              <SelectTrigger id="category" className="w-full" aria-describedby="category-description"><SelectValue /></SelectTrigger>
+              <SelectContent position="popper" align="start" aria-label="Danh mục" className="w-(--radix-select-trigger-width)" style={{ maxHeight: 'min(20rem, var(--radix-select-content-available-height))' }}>
+                <SelectGroup>
+                  <SelectLabel>Phạm vi</SelectLabel>
+                  <SelectItem value="all">Tất cả danh mục</SelectItem>
+                  <SelectItem value="unknown">Chưa có danh mục</SelectItem>
+                </SelectGroup>
+                <SelectGroup>
+                  <SelectLabel>Danh mục YouTube (bản lưu)</SelectLabel>
+                  {catalog?.categories.map(item => <SelectItem key={item.id} value={item.id}>{item.label || item.title}{item.legacy ? ' (lịch sử)' : ''}</SelectItem>)}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <FieldDescription id="category-description">Danh mục lưu sẵn, không phải danh sách trực tiếp theo khu vực.</FieldDescription>
+          </Field>
           <Field><FieldLabel id="content-label">Loại nội dung</FieldLabel><ToggleGroup type="multiple" variant="outline" value={form.content_types} onValueChange={v => update('content_types', v)} aria-labelledby="content-label" className="content-types"><ToggleGroupItem value="video">Video</ToggleGroupItem><ToggleGroupItem value="shorts">Shorts</ToggleGroupItem><ToggleGroupItem value="livestream">Trực tiếp</ToggleGroupItem></ToggleGroup><FieldDescription>Không chọn: lấy tất cả loại.</FieldDescription></Field>
           <SelectField id="live-status" label="Trạng thái trực tiếp" value={form.live_status} onChange={v => update('live_status', v)} options={[[ '', 'Tất cả'], ['is_live', 'Đang trực tiếp'], ['is_upcoming', 'Sắp phát'], ['was_live', 'Đã trực tiếp'], ['not_live', 'Không trực tiếp'], ['post_live', 'Vừa kết thúc']]} />
           <Field><FieldLabel htmlFor="date-after">Ngày đăng từ</FieldLabel><Input id="date-after" name="date_after" type="date" value={form.date_after} onChange={e => update('date_after', e.target.value)} /></Field>

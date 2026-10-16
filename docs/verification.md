@@ -47,3 +47,9 @@ Independent review found and verified fixes for playlist provenance on retry (in
 Scope remains a single-user local application with one worker. No account cookies or public hosting configuration. YouTube availability/rate limits and missing metadata are exposed honestly. The category catalog is a cached list including historical IDs, not a fresh region-specific YouTube API response. Only observed playlist memberships are known. Extraction has bounded subprocess time and output; restarting an active job marks it interrupted.
 
 Detailed machine-readable outputs and screenshots are generated under ignored `.runtime/` and `test-results/`. Reproduction commands are in the root README.
+
+## Category dropdown regression
+
+Reproduced the embedded browser showing an expanded native category selector without a painted option menu. Replaced this field with the official shadcn Radix Select, rendering a scrollable option list in the document. Other filters and backend behavior are unchanged.
+
+`uv run --with playwright python scripts/category_check.py` failed before the fix and passed afterward: visible options, retained selection on reopen, Escape/focus, category 26 in the request, clearing the category, and 390px layout. Requests are intercepted at the API boundary, so this regression creates no crawl jobs. Keyboard Tab/Shift+Tab stay in the open list; axe checks the visible list while open and the entire page after closing. A full-page open-list axe audit reports Radix's aria-hidden background as focusable; the scope is recorded rather than claiming zero full-page violations for that state. Frontend 9-test suite, lint and production build including TypeScript pass.
