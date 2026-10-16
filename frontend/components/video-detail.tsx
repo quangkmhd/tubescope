@@ -15,7 +15,7 @@ import { FieldGroup, Field, FieldLabel, FieldDescription } from '@/components/ui
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
-import { api, count, duration, date, reviewLabels } from '@/lib/api';
+import { api, count, duration, date, dateTime, reviewLabels } from '@/lib/api';
 import type { Video, ReviewStatus } from '@/lib/types';
 import { readReviewDraft, writeReviewDraft } from '@/lib/review-draft';
 
@@ -58,7 +58,7 @@ function ReviewEditor({ video, refresh, onDirtyChange }: { video: Video; refresh
     } catch (err) { setError(err instanceof Error ? err.message : 'Chưa lưu được đánh giá.'); }
     finally { setBusy(false); }
   }
-  return <form onSubmit={save} className="review-editor"><div className="review-heading"><h3>Góc nghiên cứu của bạn</h3>{changed && <Badge variant="outline">Bản nháp chưa lưu</Badge>}</div><FieldGroup className="gap-4">
+  return <form onSubmit={save} className="review-editor"><div className="review-heading"><h3>Ghi chú trong kho</h3>{changed && <Badge variant="outline">Bản nháp chưa lưu</Badge>}</div><FieldGroup className="gap-4">
     <Field><FieldLabel id="review-status-label">Đánh giá</FieldLabel><ToggleGroup type="single" variant="outline" value={status} onValueChange={v => { if(v) { setStatus(v as ReviewStatus); dirty({status: v as ReviewStatus}); } }} aria-labelledby="review-status-label" className="review-options">{Object.entries(reviewLabels).map(([value,label]) => <ToggleGroupItem value={value} key={value}>{label}</ToggleGroupItem>)}</ToggleGroup></Field>
     <Field><FieldLabel htmlFor="video-notes">Ghi chú</FieldLabel><Textarea id="video-notes" name="notes" value={notes} onChange={e => { setNotes(e.target.value); dirty({notes: e.target.value}); }} rows={4} placeholder="Điểm đáng chú ý, ý tưởng cần quay lại…" /></Field>
     <Field><FieldLabel htmlFor="personal-tags">Nhãn cá nhân</FieldLabel><Input id="personal-tags" name="personal_tags" value={tags} onChange={e => { setTags(e.target.value); dirty({tags: e.target.value}); }} placeholder="Tham khảo, ý tưởng nội dung…" /><FieldDescription>Ngăn cách bằng dấu phẩy.</FieldDescription></Field>
@@ -73,6 +73,7 @@ export function VideoDetail({ id, onClose, onRestoreFocus }: { id: string | null
     <div className="sheet-body">{error ? <Alert variant="destructive"><AlertTitle>Không tải được video</AlertTitle><AlertDescription>{error.message}</AlertDescription></Alert> : !video ? <div className="flex flex-col gap-4"><Skeleton className="aspect-video w-full" /><Skeleton className="h-8 w-4/5" /><Skeleton className="h-32 w-full" /></div> : <>
       <Thumbnail src={video.thumbnail_url} title={video.title} className="detail-thumbnail" />
       <div className="detail-heading"><h2>{video.title}</h2><p>{video.channel || 'Chưa có thông tin kênh'}{video.channel_is_verified === true && <Check aria-label="Kênh đã xác minh" />}</p><div className="flex flex-wrap gap-2"><Badge variant={video.saved ? 'secondary' : 'outline'}>{video.saved ? 'Đã lưu trong kho' : 'Chưa lưu'}</Badge><Badge variant="outline">{video.metadata_level === 'full' ? 'Metadata đầy đủ' : 'Metadata một phần'}</Badge></div></div>
+      {video.saved_at && <p className="helper-line">Đã lưu vào kho: <time dateTime={video.saved_at}>{dateTime(video.saved_at)}</time></p>}
       <Button asChild variant="outline"><a href={video.url} target="_blank" rel="noreferrer">Mở trên YouTube<ExternalLink aria-hidden="true" data-icon="inline-end" /></a></Button>
       {video.saved ? <ReviewEditor key={`${video.id}-${video.updated_at}-${video.review_status}-${video.notes}`} video={video} refresh={refresh} onDirtyChange={value => { dirty.current = value; }} /> : <Alert><AlertTitle>Lưu video để bắt đầu đánh giá</AlertTitle><AlertDescription>Chọn video trong kết quả rồi bấm “Lưu vào kho”.</AlertDescription></Alert>}
       <Separator />

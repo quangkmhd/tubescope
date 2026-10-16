@@ -933,3 +933,467 @@ def test_failed_duplicate_candidate_retry_preserves_all_playlist_memberships(set
     c.post("/api/library/save", json={"video_ids": ["abcdefghijk"]})
     groups = c.get("/api/library/groups", params={"kind": "playlists"}).json()
     assert {g["key"] for g in groups["items"]} == {"PLfirst", "PLsecond"}
+
+
+def seed_filter_videos(app):
+    from tubescope.core import normalize
+
+    for vid, fields in [
+        (
+            "aaaaaaaaaaa",
+            dict(
+                duration=60,
+                view_count=100,
+                like_count=10,
+                categories=["Music"],
+                live_status="not_live",
+                upload_date="20260101",
+                channel="Alpha channel",
+            ),
+        ),
+        (
+            "bbbbbbbbbbb",
+            dict(
+                duration=120,
+                view_count=200,
+                like_count=20,
+                categories=[],
+                live_status="was_live",
+                upload_date="20260102",
+                channel="Beta channel",
+            ),
+        ),
+        (
+            "ccccccccccc",
+            dict(
+                duration=None,
+                view_count=None,
+                like_count=None,
+                categories=[],
+                live_status=None,
+                upload_date=None,
+                channel="Missing",
+            ),
+        ),
+    ]:
+        app.state.db.upsert(normalize(raw(id=vid, **fields)))
+        app.state.db.save([vid])
+    with app.state.db.lock, app.state.db.conn:
+        for vid, stamp in [
+            ("aaaaaaaaaaa", "2026-01-01T16:59:59+00:00"),
+            ("bbbbbbbbbbb", "2026-01-01T17:00:00+00:00"),
+            ("ccccccccccc", "2026-01-02T17:00:00+00:00"),
+        ]:
+            app.state.db.conn.execute(
+                "UPDATE videos SET saved_at=? WHERE id=?", (stamp, vid)
+            )
+
+
+@pytest.mark.parametrize(
+    "filters,expected",
+    [
+        ({"duration_min": 61}, ["bbbbbbbbbbb"]),
+        ({"duration_max": 60}, ["aaaaaaaaaaa"]),
+        ({"views_min": 101, "views_max": 200}, ["bbbbbbbbbbb"]),
+        ({"likes_min": 11, "likes_max": 20}, ["bbbbbbbbbbb"]),
+        ({"category": "10"}, ["aaaaaaaaaaa"]),
+        ({"category": "unknown"}, ["bbbbbbbbbbb", "ccccccccccc"]),
+        ({"live_status": "was_live"}, ["bbbbbbbbbbb"]),
+        ({"metadata_level": "quick"}, []),
+        ({"uploaded_from": "2026-01-02", "uploaded_to": "2026-01-02"}, ["bbbbbbbbbbb"]),
+        (
+            {
+                "saved_from": "2026-01-02",
+                "saved_to": "2026-01-02",
+                "time_zone": "Asia/Bangkok",
+            },
+            ["bbbbbbbbbbb"],
+        ),
+        ({"channel": "ALPHA"}, ["aaaaaaaaaaa"]),
+    ],
+)
+def test_post_collection_filters_match_list_and_csv_before_paging(
+    setup, filters, expected
+):
+    c, app, _ = setup
+    seed_filter_videos(app)
+    params = {"sort": "newest", **filters}
+    response = c.get("/api/videos", params={**params, "page_size": 1})
+    assert response.status_code == 200, response.text
+    assert response.json()["total"] == len(expected)
+    assert [v["id"] for v in response.json()["items"]] == expected[:1]
+    exported = c.get("/api/export.csv", params=params)
+    assert exported.status_code == 200, exported.text
+    rows = list(csv.DictReader(io.StringIO(exported.text.lstrip("\ufeff"))))
+    assert [v["id"] for v in rows] == expected
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"duration_min": "nan"},
+        {"duration_max": "inf"},
+        {"duration_min": -1},
+        {"views_min": -1},
+        {"likes_max": -1},
+        {"views_min": 2, "views_max": 1},
+        {"likes_min": 2, "likes_max": 1},
+        {"duration_min": 2, "duration_max": 1},
+        {"category": "bogus"},
+        {"live_status": "bogus"},
+        {"metadata_level": "bogus"},
+        {"uploaded_from": "2026-02-30"},
+        {"uploaded_from": "20260101"},
+        {"uploaded_from": "2026-01-02", "uploaded_to": "2026-01-01"},
+        {"saved_from": "2026-01-02", "saved_to": "2026-01-01"},
+        {"time_zone": "Invalid/Zone"},
+        {"sort": "arrival"},
+    ],
+)
+def test_invalid_collection_filters_are_rejected_on_list_and_export(setup, params):
+    c, _, _ = setup
+    for path in ["/api/videos", "/api/export.csv"]:
+        assert c.get(path, params=params).status_code == 422
+
+
+def test_arrival_order_is_per_job_and_preserves_first_link_after_metadata_refresh(
+    setup,
+):
+    from tubescope.core import normalize
+
+    c, app, _ = setup
+    job = app.state.worker.submit(
+        {"source_type": "video", "sources": ["https://youtu.be/abcdefghijk"]},
+        wake=False,
+    )
+    for vid in ["aaaaaaaaaaa", "bbbbbbbbbbb"]:
+        app.state.db.upsert(normalize(raw(id=vid)))
+        app.state.db.link_job(job["id"], vid)
+    app.state.db.upsert(normalize(raw(id="aaaaaaaaaaa", view_count=999999)))
+    app.state.db.link_job(job["id"], "aaaaaaaaaaa")
+    params = {"scope": "job", "job_id": job["id"]}
+    for extra in [{}, {"sort": "arrival"}]:
+        rows = c.get("/api/videos", params={**params, **extra}).json()
+        assert [v["id"] for v in rows["items"]] == ["bbbbbbbbbbb", "aaaaaaaaaaa"]
+    exported = c.get("/api/export.csv", params={**params, "sort": "arrival"})
+    assert [
+        r["id"] for r in csv.DictReader(io.StringIO(exported.text.lstrip("\ufeff")))
+    ] == ["bbbbbbbbbbb", "aaaaaaaaaaa"]
+
+
+def test_processed_progress_counts_completed_occurrences_and_final_discovery(setup):
+    c, app, extractor = setup
+    snapshots = []
+    job = app.state.worker.submit(
+        {
+            "source_type": "playlist",
+            "sources": [
+                "https://www.youtube.com/playlist?list=PLone",
+                "https://www.youtube.com/playlist?list=PLtwo",
+            ],
+            "filters": {"views_min": 100},
+        },
+        wake=False,
+    )
+
+    def extract(url, **kwargs):
+        snapshots.append(c.get("/api/jobs/" + job["id"]).json())
+        if kwargs.get("flat"):
+            return {
+                "entries": [
+                    raw(),
+                    raw(),
+                    raw(id="12345678901"),
+                    raw(id="aaaaaaaaaaa", view_count=1),
+                ]
+            }
+        if "12345678901" in url:
+            raise RuntimeError("Unavailable")
+        return raw()
+
+    extractor.extract = extract
+    app.state.worker.wake.set()
+    done = finished(c, job["id"])
+    assert done["processed_count"] == done["total_count"] == 8
+    assert done["discovery_complete"] is True
+    assert any(
+        j["processed_count"] == 0 and not j["discovery_complete"] for j in snapshots
+    )
+    assert any(
+        j["processed_count"] == 4 and not j["discovery_complete"] for j in snapshots
+    )
+
+
+def test_cancel_and_recovery_persist_reason(setup):
+    c, app, _ = setup
+    request = {"source_type": "video", "sources": ["https://youtu.be/abcdefghijk"]}
+    job = app.state.worker.submit(request, wake=False)
+    cancelled = c.post(f"/api/jobs/{job['id']}/cancel").json()
+    assert cancelled["termination_reason"] == "user_cancelled"
+    job = app.state.worker.submit(request, wake=False)
+    app.state.db.recover()
+    assert app.state.db.job(job["id"])["termination_reason"] == "service_restart"
+
+
+@pytest.mark.parametrize("mode", ["quick", "full"])
+def test_direct_job_progress_includes_failed_candidates(setup, mode):
+    c, app, extractor = setup
+    snapshots = []
+    job = app.state.worker.submit(
+        {
+            "source_type": "video",
+            "sources": ["https://youtu.be/abcdefghijk", "https://youtu.be/12345678901"],
+            "mode": mode,
+        },
+        wake=False,
+    )
+
+    def extract(url, **kwargs):
+        snapshots.append(c.get("/api/jobs/" + job["id"]).json())
+        raise RuntimeError("Unavailable")
+
+    extractor.extract = extract
+    app.state.worker.wake.set()
+    done = finished(c, job["id"])
+    assert done["status"] == "failed"
+    assert done["processed_count"] == done["total_count"] == 2
+    assert snapshots[0]["discovery_complete"] is True
+    assert snapshots[0]["processed_count"] == 0
+    assert snapshots[1]["processed_count"] == 1
+
+
+def test_cancelled_inflight_candidate_is_not_counted_as_processed(setup):
+    c, _, extractor = setup
+    extractor.block = True
+    job = crawl(c).json()
+    assert extractor.entered.wait(1)
+    cancelled = c.post(f"/api/jobs/{job['id']}/cancel").json()
+    assert cancelled["processed_count"] == 0
+    assert cancelled["total_count"] == 1
+    assert cancelled["discovery_complete"] is True
+    assert cancelled["termination_reason"] == "user_cancelled"
+
+
+def test_resource_and_malformed_occurrences_count_as_processed(setup):
+    c, _, extractor = setup
+    extractor.extract = lambda *a, **kw: {
+        "entries": [
+            None,
+            {
+                "id": "UCtest",
+                "title": "Test",
+                "url": "https://www.youtube.com/channel/UCtest",
+            },
+        ]
+    }
+    job = crawl(
+        c,
+        source_type="keyword",
+        sources=["resources"],
+        mode="quick",
+        native={"result_type": "channels"},
+    ).json()
+    done = finished(c, job["id"])
+    assert done["processed_count"] == done["total_count"] == 2
+    assert done["discovery_complete"] is True
+
+
+def test_saved_date_offset_overflow_is_validation_error(setup):
+    c, _, _ = setup
+    for path in ["/api/videos", "/api/export.csv"]:
+        response = c.get(
+            path, params={"saved_from": "0001-01-01", "time_zone": "Asia/Bangkok"}
+        )
+        assert response.status_code == 422
+
+
+@pytest.mark.parametrize("key", ["views_min", "views_max", "likes_min", "likes_max"])
+def test_integer_bounds_fit_sqlite_int64(setup, key):
+    c, _, _ = setup
+    for path in ["/api/videos", "/api/export.csv"]:
+        for invalid in [str(2**63), str(10**400)]:
+            assert c.get(path, params={key: invalid}).status_code == 422
+        assert c.get(path, params={key: str(2**63 - 1)}).status_code == 200
+
+
+@pytest.mark.parametrize("late_result", ["error", "listing"])
+def test_cancel_freezes_counters_and_reason_when_extractor_finishes_late(
+    setup, late_result
+):
+    c, app, extractor = setup
+    entered = threading.Event()
+    release = threading.Event()
+
+    def extract(*args, **kwargs):
+        entered.set()
+        assert release.wait(2)
+        if late_result == "error":
+            raise RuntimeError("Late extractor error after cancellation")
+        return {"entries": [raw(), raw(id="12345678901")]}
+
+    extractor.extract = extract
+    job = crawl(c, source_type="keyword", sources=["test"], mode="quick").json()
+    assert entered.wait(1)
+    before = c.post(f"/api/jobs/{job['id']}/cancel").json()
+    release.set()
+    for _ in range(100):
+        if app.state.worker.active_id is None:
+            break
+        time.sleep(0.01)
+    assert app.state.worker.active_id is None
+    after = c.get(f"/api/jobs/{job['id']}").json()
+    assert after == before
+
+
+def test_empty_sort_is_not_a_default_alias(setup):
+    c, _, _ = setup
+    for path in ["/api/videos", "/api/export.csv"]:
+        assert c.get(path, params={"sort": ""}).status_code == 422
+
+
+def test_groups_report_latest_first_save_timestamp(setup):
+    from tubescope.core import normalize
+
+    c, app, _ = setup
+    seed_filter_videos(app)
+    for vid in ["aaaaaaaaaaa", "bbbbbbbbbbb"]:
+        app.state.db.upsert(
+            normalize(raw(id=vid)), playlist={"id": "PLdates", "title": "Dates"}
+        )
+    expected = {
+        "channels": {"UC_test": "2026-01-02T17:00:00+00:00"},
+        "playlists": {"PLdates": "2026-01-01T17:00:00+00:00"},
+        "categories": {
+            "27": "2026-01-01T17:00:00+00:00",
+            "unknown": "2026-01-02T17:00:00+00:00",
+        },
+    }
+    for kind, groups in expected.items():
+        response = c.get("/api/library/groups", params={"kind": kind})
+        assert response.status_code == 200
+        assert {
+            g["key"]: g["last_saved_at"] for g in response.json()["items"]
+        } == groups
+    # A metadata refresh and repeated save retain the original save event.
+    assert app.state.db.save(["aaaaaaaaaaa", "bbbbbbbbbbb"]) == 0
+    assert app.state.db.video("bbbbbbbbbbb")["saved_at"] == "2026-01-01T17:00:00+00:00"
+
+
+@pytest.mark.parametrize("resource", [False, True])
+def test_cancel_before_publication_prevents_result_and_counter_changes(setup, resource):
+    from contextlib import contextmanager
+
+    c, app, extractor = setup
+    worker = app.state.worker
+    ready = threading.Event()
+    release = threading.Event()
+    original = worker._publication
+
+    @contextmanager
+    def paused_publication(*args, **kwargs):
+        ready.set()
+        assert release.wait(2)
+        with original(*args, **kwargs):
+            yield
+
+    worker._publication = paused_publication
+    if resource:
+        extractor.extract = lambda *args, **kwargs: {
+            "entries": [
+                {
+                    "id": "UCtest",
+                    "title": "Channel",
+                    "url": "https://www.youtube.com/channel/UCtest",
+                }
+            ]
+        }
+        job = crawl(
+            c,
+            source_type="keyword",
+            sources=["channels"],
+            mode="quick",
+            native={"result_type": "channels"},
+        ).json()
+    else:
+        job = crawl(c).json()
+    assert ready.wait(1)
+    cancelled = c.post(f"/api/jobs/{job['id']}/cancel").json()
+    assert cancelled["matched_count"] == cancelled["processed_count"] == 0
+    release.set()
+    for _ in range(100):
+        if worker.active_id is None:
+            break
+        time.sleep(0.01)
+    assert worker.active_id is None
+    assert c.get(f"/api/jobs/{job['id']}").json() == cancelled
+    assert (
+        c.get("/api/videos", params={"scope": "job", "job_id": job["id"]}).json()[
+            "total"
+        ]
+        == 0
+    )
+    assert c.get(f"/api/jobs/{job['id']}/resources").json()["items"] == []
+    assert app.state.db.video("abcdefghijk") is None
+
+
+@pytest.mark.parametrize("resource", [False, True])
+def test_cancel_during_publication_waits_for_result_and_completed_counters(
+    setup, resource
+):
+    c, app, extractor = setup
+    ready = threading.Event()
+    release = threading.Event()
+    cancel_done = threading.Event()
+    original = app.state.db.resource if resource else app.state.db.upsert
+
+    def paused_write(*args, **kwargs):
+        ready.set()
+        assert release.wait(2)
+        return original(*args, **kwargs)
+
+    if resource:
+        app.state.db.resource = paused_write
+        extractor.extract = lambda *args, **kwargs: {
+            "entries": [
+                {
+                    "id": "UCtest",
+                    "title": "Channel",
+                    "url": "https://www.youtube.com/channel/UCtest",
+                }
+            ]
+        }
+        job = crawl(
+            c,
+            source_type="keyword",
+            sources=["channels"],
+            mode="quick",
+            native={"result_type": "channels"},
+        ).json()
+    else:
+        app.state.db.upsert = paused_write
+        job = crawl(c).json()
+    assert ready.wait(1)
+    responses = []
+
+    def cancel_job():
+        responses.append(c.post(f"/api/jobs/{job['id']}/cancel").json())
+        cancel_done.set()
+
+    thread = threading.Thread(target=cancel_job)
+    thread.start()
+    assert not cancel_done.wait(0.05)
+    release.set()
+    thread.join(2)
+    assert not thread.is_alive()
+    terminal = responses[0]
+    assert terminal["matched_count"] == terminal["processed_count"] == 1
+    assert terminal["status"] in {"completed", "cancelled"}
+    if resource:
+        assert len(c.get(f"/api/jobs/{job['id']}/resources").json()["items"]) == 1
+    else:
+        assert (
+            c.get("/api/videos", params={"scope": "job", "job_id": job["id"]}).json()[
+                "total"
+            ]
+            == 1
+        )

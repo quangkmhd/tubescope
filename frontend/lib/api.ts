@@ -61,5 +61,10 @@ export function date(value: string | null | undefined): string {
   const d = new Date(normalized);
   return Number.isNaN(d.getTime()) ? value : new Intl.DateTimeFormat('vi-VN', { dateStyle: 'medium' }).format(d);
 }
+export function dateTime(value: string | null | undefined): string {
+  if (!value) return '—';
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? '—' : new Intl.DateTimeFormat('vi-VN', { dateStyle:'medium', timeStyle:'medium' }).format(parsed);
+}
 export const reviewLabels = { todo: 'Chưa xem', keep: 'Giữ lại', skip: 'Bỏ qua' };
-export const jobLabels: Record<string, string> = { queued: 'Đang chờ', running: 'Đang thu thập', completed: 'Hoàn thành', partial: 'Hoàn thành một phần', failed: 'Thất bại', cancelled: 'Đã dừng', interrupted: 'Bị gián đoạn' };
+export const jobLabels: Record<string, string> = { queued: 'Đang chờ', running: 'Đang thu thập', completed: 'Hoàn thành', partial: 'Hoàn thành một phần', failed: 'Thất bại', cancelled: 'Đã hủy', interrupted: 'Bị gián đoạn' };

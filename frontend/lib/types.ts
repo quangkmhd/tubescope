@@ -16,12 +16,12 @@ export type Job = {
   id: string; status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'interrupted';
   kind: 'crawl' | 'refresh' | 'save'; source_type: string; sources: string[]; mode: string; limit: number;
   phase: string; scanned_count: number; matched_count: number; failed_count: number;
-  prefiltered_count?: number; detailed_count?: number;
+  prefiltered_count?: number; detailed_count?: number; processed_count?: number; discovery_complete?: boolean;
   skipped_count: number; total_count: number | null; created_at: string; started_at: string | null;
   finished_at: string | null; error: string | null; errors: { source: string; message: string }[];
 };
 export type Resource = { id: string; title: string; url: string; kind: 'channel' | 'playlist'; thumbnail_url: string | null };
-export type Group = { key: string; title: string; subtitle: string | null; video_count: number; unreviewed_count: number; thumbnail_url: string | null };
+export type Group = { last_saved_at?: string | null; key: string; title: string; subtitle: string | null; video_count: number; unreviewed_count: number; thumbnail_url: string | null };
 export type GroupKind = 'channels' | 'playlists' | 'categories';
 export type Stats = { saved_count: number; channel_count: number; playlist_count: number; category_count: number; todo_count: number; keep_count: number; skip_count: number };
 export type Catalog = { categories: { id: string; title: string; label: string; legacy: boolean }[]; metadata_groups: string[]; native_features: { id: string; label: string }[] };

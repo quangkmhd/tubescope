@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import sqlite3
 import threading
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .core import CATEGORY_NAMES, now
 
@@ -16,6 +19,7 @@ SORTS = {
     "duration": "v.duration ASC",
     "updated": "v.updated_at DESC",
     "saved": "v.saved_at DESC",
+    "arrival": "arrival",
 }
 SORT_NULL = {
     "views": "v.view_count",
@@ -232,6 +236,22 @@ class Database:
         group_key=None,
         content_type="all",
         video_ids=None,
+        duration_min=None,
+        duration_max=None,
+        views_min=None,
+        views_max=None,
+        likes_min=None,
+        likes_max=None,
+        category="all",
+        live_status="all",
+        metadata_level="all",
+        uploaded_from=None,
+        uploaded_to=None,
+        saved_from=None,
+        saved_to=None,
+        time_zone="UTC",
+        channel="",
+        channel_id=None,
         **_,
     ):
         clauses = []
@@ -292,6 +312,98 @@ class Database:
                     params.append(group_key)
             else:
                 raise ValueError("Nhóm không hợp lệ.")
+        for field, low, high in [
+            ("v.duration", duration_min, duration_max),
+            ("v.view_count", views_min, views_max),
+            ("json_extract(v.data,'$.like_count')", likes_min, likes_max),
+        ]:
+            for value in (low, high):
+                if value is not None and (not math.isfinite(value) or value < 0):
+                    raise ValueError("Giới hạn phải là số hữu hạn không âm.")
+            if low is not None and high is not None and low > high:
+                raise ValueError("Giới hạn từ phải nhỏ hơn hoặc bằng giới hạn đến.")
+            for value, operator in [(low, ">="), (high, "<=")]:
+                if value is not None:
+                    clauses.append(f"{field}{operator}?")
+                    params.append(value)
+        if category not in {"all", "unknown", *CATEGORY_NAMES}:
+            raise ValueError("Category không có trong danh mục lưu sẵn.")
+        if category == "unknown":
+            clauses.append(
+                "NOT EXISTS(SELECT 1 FROM video_categories c WHERE c.video_id=v.id)"
+            )
+        elif category != "all":
+            clauses.append(
+                "EXISTS(SELECT 1 FROM video_categories c WHERE c.video_id=v.id AND c.category_key=?)"
+            )
+            params.append(category)
+        for field, value, allowed in [
+            (
+                "live_status",
+                live_status,
+                {"all", "not_live", "is_live", "is_upcoming", "was_live", "post_live"},
+            ),
+            ("metadata_level", metadata_level, {"all", "quick", "full"}),
+        ]:
+            if value not in allowed:
+                raise ValueError("Bộ lọc metadata không hợp lệ.")
+            if value != "all":
+                clauses.append(f"json_extract(v.data,'$.{field}')=?")
+                params.append(value)
+        try:
+            zone = ZoneInfo(time_zone)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError("Múi giờ không hợp lệ.") from None
+        for field, start, end, local in [
+            ("v.upload_date", uploaded_from, uploaded_to, False),
+            ("v.saved_at", saved_from, saved_to, True),
+        ]:
+            days = []
+            for value in (start, end):
+                if value is not None and not re.fullmatch(
+                    r"\d{4}-\d{2}-\d{2}", str(value)
+                ):
+                    raise ValueError("Ngày phải có định dạng YYYY-MM-DD.")
+                days.append(
+                    date.fromisoformat(str(value)) if value is not None else None
+                )
+            start_day, end_day = days
+            if start_day and end_day and start_day > end_day:
+                raise ValueError("Ngày bắt đầu không được sau ngày kết thúc.")
+            for day, is_end in [(start_day, False), (end_day, True)]:
+                if day is None:
+                    continue
+                if local:
+                    if is_end and day == date.max:
+                        clauses.append(f"{field} IS NOT NULL")
+                        continue
+                    try:
+                        boundary = (
+                            datetime.combine(
+                                day + timedelta(days=int(is_end)), time.min, tzinfo=zone
+                            )
+                            .astimezone(timezone.utc)
+                            .isoformat()
+                        )
+                    except OverflowError:
+                        raise ValueError("Khoảng ngày vượt phạm vi hỗ trợ.") from None
+                    clauses.append(
+                        f"julianday({field}) {'<' if is_end else '>='} julianday(?)"
+                    )
+                    params.append(boundary)
+                else:
+                    clauses.append(f"{field} {'<=' if is_end else '>='} ?")
+                    params.append(day.isoformat())
+        if channel:
+            clauses.append("v.channel LIKE ? ESCAPE '\\'")
+            params.append(
+                "%"
+                + channel.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                + "%"
+            )
+        if channel_id is not None:
+            clauses.append("v.channel_id=?")
+            params.append(channel_id)
         if video_ids is not None:
             if len(video_ids) > 1000:
                 raise ValueError("Tối đa 1000 video.")
@@ -302,9 +414,22 @@ class Database:
                 clauses.append("0")
         return " AND ".join(clauses) or "1", params
 
-    def videos(self, page=1, page_size=50, sort="views", **filters):
+    def ordering(self, sort=None, **filters):
+        if sort is None:
+            sort = "arrival" if filters.get("scope") == "job" else "views"
         if sort not in SORTS:
             raise ValueError("Sắp xếp không hợp lệ.")
+        if sort == "arrival":
+            if filters.get("scope") != "job" or not filters.get("job_id"):
+                raise ValueError("Sắp xếp arrival cần scope=job và job_id.")
+            return (
+                "(SELECT j.rowid FROM job_videos j WHERE j.video_id=v.id AND j.job_id=?) DESC,v.id",
+                [filters["job_id"]],
+            )
+        return f"({SORT_NULL[sort]} IS NULL),{SORTS[sort]},v.id", []
+
+    def videos(self, page=1, page_size=50, sort=None, **filters):
+        order, order_params = self.ordering(sort, **filters)
         if not (1 <= page and 1 <= page_size <= 100):
             raise ValueError("Phân trang không hợp lệ.")
         where, params = self._where(**filters)
@@ -315,8 +440,8 @@ class Database:
             rows = self.conn.execute(
                 "SELECT v.* FROM videos v WHERE "
                 + where
-                + f" ORDER BY ({SORT_NULL[sort]} IS NULL),{SORTS[sort]},v.id LIMIT ? OFFSET ?",
-                [*params, page_size, (page - 1) * page_size],
+                + f" ORDER BY {order} LIMIT ? OFFSET ?",
+                [*params, *order_params, page_size, (page - 1) * page_size],
             ).fetchall()
         return {
             "items": [self.decode(r) for r in rows],
@@ -325,19 +450,16 @@ class Database:
             "page_size": page_size,
         }
 
-    def iter_videos(self, sort="views", **filters):
-        if sort not in SORTS:
-            raise ValueError("Sắp xếp không hợp lệ.")
+    def iter_videos(self, sort=None, **filters):
+        order, order_params = self.ordering(sort, **filters)
         where, params = self._where(**filters)
         # Dedicated read connection gives a stable streaming snapshot without blocking the worker lock.
         connection = sqlite3.connect(self.path, timeout=15)
         connection.row_factory = sqlite3.Row
         try:
             cursor = connection.execute(
-                "SELECT v.* FROM videos v WHERE "
-                + where
-                + f" ORDER BY ({SORT_NULL[sort]} IS NULL),{SORTS[sort]},v.id",
-                params,
+                "SELECT v.* FROM videos v WHERE " + where + f" ORDER BY {order}",
+                [*params, *order_params],
             )
             while rows := cursor.fetchmany(100):
                 for r in rows:
@@ -355,19 +477,19 @@ class Database:
             params.append(channel_id)
         if kind == "channels":
             query = (
-                "SELECT COALESCE(v.channel_id,'unknown') AS key,COALESCE(MAX(v.channel),'Chưa xác định kênh') AS title,MAX(v.channel_id) AS subtitle,COUNT(*) AS video_count,SUM(v.review_status='todo') AS unreviewed_count,json_extract(v.data,'$.thumbnail_url') AS thumbnail_url FROM videos v WHERE "
+                "SELECT COALESCE(v.channel_id,'unknown') AS key,COALESCE(MAX(v.channel),'Chưa xác định kênh') AS title,MAX(v.channel_id) AS subtitle,MAX(v.saved_at) AS last_saved_at,COUNT(*) AS video_count,SUM(v.review_status='todo') AS unreviewed_count,json_extract(v.data,'$.thumbnail_url') AS thumbnail_url FROM videos v WHERE "
                 + base
                 + " GROUP BY COALESCE(v.channel_id,'unknown')"
             )
         elif kind == "playlists":
             query = (
-                "SELECT p.id AS key,p.title,p.url AS subtitle,COUNT(*) AS video_count,SUM(v.review_status='todo') AS unreviewed_count,json_extract(v.data,'$.thumbnail_url') AS thumbnail_url FROM videos v JOIN video_playlists vp ON vp.video_id=v.id JOIN playlists p ON p.id=vp.playlist_id WHERE "
+                "SELECT p.id AS key,p.title,p.url AS subtitle,MAX(v.saved_at) AS last_saved_at,COUNT(*) AS video_count,SUM(v.review_status='todo') AS unreviewed_count,json_extract(v.data,'$.thumbnail_url') AS thumbnail_url FROM videos v JOIN video_playlists vp ON vp.video_id=v.id JOIN playlists p ON p.id=vp.playlist_id WHERE "
                 + base
                 + " GROUP BY p.id"
             )
         elif kind == "categories":
             query = (
-                "SELECT COALESCE(c.category_key,'unknown') AS key,COALESCE(c.title,'Chưa xác định thể loại') AS title,NULL AS subtitle,COUNT(*) AS video_count,SUM(v.review_status='todo') AS unreviewed_count,json_extract(v.data,'$.thumbnail_url') AS thumbnail_url FROM videos v LEFT JOIN video_categories c ON c.video_id=v.id WHERE "
+                "SELECT COALESCE(c.category_key,'unknown') AS key,COALESCE(c.title,'Chưa xác định thể loại') AS title,NULL AS subtitle,MAX(v.saved_at) AS last_saved_at,COUNT(*) AS video_count,SUM(v.review_status='todo') AS unreviewed_count,json_extract(v.data,'$.thumbnail_url') AS thumbnail_url FROM videos v LEFT JOIN video_categories c ON c.video_id=v.id WHERE "
                 + base
                 + " GROUP BY COALESCE(c.category_key,'unknown')"
             )
@@ -450,6 +572,8 @@ class Database:
             job = self.job(id)
             if not job:
                 return None
+            if job["status"] in TERMINAL:
+                return job
             job.update(patch)
             self.conn.execute(
                 "UPDATE jobs SET status=?,data=? WHERE id=?",
@@ -461,6 +585,8 @@ class Database:
         """Persist the public error and private retry lineage in one transaction."""
         with self.lock, self.conn:
             job = self.job(id)
+            if job["status"] in TERMINAL:
+                return job
             request = self.job_request(id)
             request.setdefault("_failed_items", []).append(retry_item)
             job["errors"].append({"source": source, "message": message})
@@ -525,6 +651,7 @@ class Database:
                     phase="interrupted",
                     finished_at=now(),
                     error="Máy chủ đã dừng; hãy thử lại tác vụ.",
+                    termination_reason="service_restart",
                 )
 
     def link_job(self, job_id, video_id, existing=False):

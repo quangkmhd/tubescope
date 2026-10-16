@@ -53,12 +53,10 @@ with sync_playwright() as p:
 
     # Native validity regression for rounded duration presets.
     page.locator('#sources').fill('kiến trúc nhà nhỏ')
-    page.locator('.advanced-filters summary').click()
     for value in ['short', 'long']:
         page.locator('#duration-preset').select_option(value)
         assert page.locator('.source-panel form').evaluate('(form)=>form.checkValidity()')
     page.locator('#duration-preset').select_option('all')
-    page.locator('.advanced-filters summary').click()
     passed('short and long duration presets pass native form validation')
 
     if args.job:
@@ -146,7 +144,7 @@ with sync_playwright() as p:
         response = page.request.patch(f"{args.base}/api/videos/{video['id']}/review", data={key: original[key] for key in ['review_status', 'notes', 'personal_tags']})
         assert response.ok
 
-    page.locator('.main-navigation').get_by_role('link', name='Kho nghiên cứu', exact=False).click()
+    page.locator('.main-navigation').get_by_role('link', name='Kho lưu trữ', exact=False).click()
     expect(page.locator('.group-card').first).to_be_visible()
     expect(page.locator('.warehouse-tabs').get_by_role('link', name='Kênh', exact=True)).to_have_attribute('aria-current', 'page')
     audit(page, 'desktop-warehouse')
@@ -177,7 +175,7 @@ with sync_playwright() as p:
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
     audit(page, 'mobile-discover')
     shot(page, 'discover-mobile')
-    page.locator('.main-navigation').get_by_role('link', name='Kho nghiên cứu', exact=False).click()
+    page.locator('.main-navigation').get_by_role('link', name='Kho lưu trữ', exact=False).click()
     expect(page.locator('.group-card').first).to_be_visible()
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
     audit(page, 'mobile-warehouse')

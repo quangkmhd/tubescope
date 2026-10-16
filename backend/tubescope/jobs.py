@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from urllib.parse import parse_qs, urlsplit
 
 from .core import (
@@ -111,6 +112,9 @@ class Worker:
             "limit": req.limit,
             "phase": "queued",
             "scanned_count": 0,
+            "processed_count": 0,
+            "discovery_complete": False,
+            "termination_reason": None,
             "prefiltered_count": 0,
             "detailed_count": 0,
             "matched_count": 0,
@@ -138,7 +142,12 @@ class Worker:
             if id == self.active_id and self.cancel_event:
                 self.cancel_event.set()
             return self.db.update_job(
-                id, status="cancelled", phase="cancelled", finished_at=now()
+                id,
+                status="cancelled",
+                phase="cancelled",
+                finished_at=now(),
+                termination_reason="user_cancelled",
+                error="Người dùng đã hủy tác vụ.",
             )
 
     def retry(self, id):
@@ -188,7 +197,16 @@ class Worker:
                     with self.db.lock:
                         if self.db.job(id)["status"] != "cancelled":
                             self.db.update_job(
-                                id, status=status, phase=status, finished_at=now()
+                                id,
+                                status=status,
+                                phase=status,
+                                finished_at=now(),
+                                termination_reason="service_restart"
+                                if status == "interrupted"
+                                else "user_cancelled",
+                                error="Máy chủ đã dừng; hãy thử lại tác vụ."
+                                if status == "interrupted"
+                                else "Người dùng đã hủy tác vụ.",
                             )
                 except Exception as exc:
                     with self.db.lock:
@@ -218,6 +236,15 @@ class Worker:
         if time.monotonic() > deadline:
             raise JobDeadlineExceeded("Tác vụ vượt thời gian xử lý tối đa 30 phút.")
 
+    @contextmanager
+    def _publication(self, id, cancel, deadline):
+        # cancel() takes this same lock before setting the event or terminal state.
+        # Keep extraction outside: one completed occurrence publishes atomically.
+        with self.db.lock:
+            self._check(cancel, deadline)
+            yield
+            self.db.increment(id, processed_count=1)
+
     def _run(self, id, cancel):
         req = self.db.job_request(id)
         deadline = time.monotonic() + 1800
@@ -239,11 +266,27 @@ class Worker:
                 prefiltered.remove(vid)
                 self.db.increment(id, prefiltered_count=-1)
 
+        def failed(source, exc, retry_item=None, *, candidate=False):
+            if candidate:
+                with self._publication(id, cancel, deadline):
+                    self._error(id, source, exc, retry_item)
+            else:
+                with self.db.lock:
+                    self._check(cancel, deadline)
+                    self._error(id, source, exc, retry_item)
+
+        def cached_metadata(video):
+            return {
+                key: value
+                for key, value in video.items()
+                if key
+                not in {"saved", "saved_at", "review_status", "notes", "personal_tags"}
+            }
+
         def ingest(entry, source, playlist=None, shorts=False):
             video_id = str(entry.get("id") or "")
             if video_id in failed_candidates:
-                # Do not extract a failed ID twice, but let the caller persist this
-                # occurrence's source/playlist context as another targeted retry item.
+                # Retain each duplicate's retry context without extracting again.
                 raise RuntimeError(failed_candidates[video_id])
             try:
                 ingest_candidate(entry, source, playlist, shorts)
@@ -254,79 +297,45 @@ class Worker:
                 raise
 
         def ingest_candidate(entry, source, playlist=None, shorts=False):
-            nonlocal total
             self._check(cancel, deadline)
             vid = str(entry.get("id") or "")
             if not VIDEO_ID.fullmatch(vid):
                 raise ValueError("Mục nguồn không chứa ID video YouTube hợp lệ.")
-            # Link the same video to every observed playlist, even when duplicated in this job.
             old = self.db.video(vid)
             if vid in seen:
-                if old and playlist:
-                    self.db.upsert(
-                        {
-                            k: v
-                            for k, v in old.items()
-                            if k
-                            not in {
-                                "saved",
-                                "saved_at",
-                                "review_status",
-                                "notes",
-                                "personal_tags",
-                            }
-                        },
-                        playlist=playlist,
-                    )
+                # Each duplicate still completes one discovered occurrence.
+                with self._publication(id, cancel, deadline):
+                    if old and playlist:
+                        self.db.upsert(cached_metadata(old), playlist=playlist)
                 return
-            if vid not in considered:
-                considered.add(vid)
-                self.db.increment(id, scanned_count=1)
-            self.db.update_job(id, phase=f"extracting {vid}")
+            with self.db.lock:
+                self._check(cancel, deadline)
+                if vid not in considered:
+                    considered.add(vid)
+                    self.db.increment(id, scanned_count=1)
+                self.db.update_job(id, phase=f"extracting {vid}")
             existing = bool(old and old["saved"])
             skip = existing and req["existing_policy"] == "skip" and kind == "crawl"
             if skip:
-                clear_prefilter(vid)
                 v = old
-                if playlist:
-                    self.db.upsert(
-                        {
-                            k: value
-                            for k, value in old.items()
-                            if k
-                            not in {
-                                "saved",
-                                "saved_at",
-                                "review_status",
-                                "notes",
-                                "personal_tags",
-                            }
-                        },
-                        playlist=playlist,
-                    )
-                self.db.increment(id, skipped_count=1)
-            else:
-                if mode == "full":
-                    short_evidence = (
-                        shorts
-                        or bool(
-                            old
-                            and (
-                                old["content_type"] == "shorts"
-                                or "/shorts/" in old["url"]
-                            )
-                        )
-                        or any(
-                            "youtube.com/shorts/" in str(entry.get(k) or "")
-                            for k in ("url", "webpage_url")
+            elif mode == "full":
+                short_evidence = (
+                    shorts
+                    or bool(
+                        old
+                        and (
+                            old["content_type"] == "shorts" or "/shorts/" in old["url"]
                         )
                     )
-                    if kind == "crawl" and listing_rejects(entry, filters):
-                        # Preserve known playlist relationships and reviews without
-                        # fetching metadata for a candidate rejected by the listing.
+                    or any(
+                        "youtube.com/shorts/" in str(entry.get(key) or "")
+                        for key in ("url", "webpage_url")
+                    )
+                )
+                if kind == "crawl" and listing_rejects(entry, filters):
+                    with self._publication(id, cancel, deadline):
+                        # Preserve observed evidence without fetching rejected metadata.
                         if old is None:
-                            # Keep observed memberships/Shorts evidence even if a
-                            # later source or retry is the one that enriches it.
                             self.db.upsert(
                                 normalize(
                                     entry, mode="quick", source=source, shorts=shorts
@@ -334,18 +343,7 @@ class Worker:
                                 playlist=playlist,
                             )
                         elif playlist or short_evidence:
-                            cached = {
-                                k: value
-                                for k, value in old.items()
-                                if k
-                                not in {
-                                    "saved",
-                                    "saved_at",
-                                    "review_status",
-                                    "notes",
-                                    "personal_tags",
-                                }
-                            }
+                            cached = cached_metadata(old)
                             if short_evidence:
                                 cached["url"] = f"https://www.youtube.com/shorts/{vid}"
                                 if cached["content_type"] != "livestream":
@@ -355,34 +353,40 @@ class Worker:
                             prefiltered.add(vid)
                             self.db.increment(id, prefiltered_count=1)
                         self.db.update_job(id, phase="filtering")
-                        return
+                    return
+                with self.db.lock:
+                    self._check(cancel, deadline)
                     clear_prefilter(vid)
-                    # Construct canonical URLs instead of following arbitrary extractor-provided destinations.
-                    raw = extract(
-                        f"https://www.youtube.com/{'shorts/' if short_evidence else 'watch?v='}{vid}"
-                    )
-                    v = normalize(
-                        raw, mode="full", source=source, shorts=short_evidence
-                    )
+                # No database publication lock is held during extractor/network work.
+                raw = extract(
+                    f"https://www.youtube.com/{'shorts/' if short_evidence else 'watch?v='}{vid}"
+                )
+                v = normalize(raw, mode="full", source=source, shorts=short_evidence)
+            else:
+                v = normalize(entry, mode="quick", source=source, shorts=shorts)
+            with self._publication(id, cancel, deadline):
+                clear_prefilter(vid)
+                if skip:
+                    if playlist:
+                        self.db.upsert(cached_metadata(old), playlist=playlist)
+                    self.db.increment(id, skipped_count=1)
                 else:
-                    v = normalize(entry, mode="quick", source=source, shorts=shorts)
-                self._check(cancel, deadline)
-                self.db.upsert(v, playlist=playlist)
-                if mode == "full":
-                    self.db.increment(id, detailed_count=1)
-            seen.add(vid)
-            if kind == "save":
-                self.db.save([vid])
-            if matches(v, filters) and not (
-                req["native"]["result_type"] == "longform"
-                and v["content_type"] == "shorts"
-            ):
-                self.db.link_job(id, vid, existing)
-                self.db.increment(id, matched_count=1)
+                    self.db.upsert(v, playlist=playlist)
+                    if mode == "full":
+                        self.db.increment(id, detailed_count=1)
+                seen.add(vid)
+                if kind == "save":
+                    self.db.save([vid])
+                if matches(v, filters) and not (
+                    req["native"]["result_type"] == "longform"
+                    and v["content_type"] == "shorts"
+                ):
+                    self.db.link_job(id, vid, existing)
+                    self.db.increment(id, matched_count=1)
 
         if kind in {"save", "refresh"}:
             ids = req.get("_video_ids", [])
-            self.db.update_job(id, total_count=len(ids))
+            self.db.update_job(id, total_count=len(ids), discovery_complete=True)
             for vid in ids:
                 v = self.db.video(vid)
                 try:
@@ -394,12 +398,16 @@ class Worker:
                 except (ExtractionCancelled, JobDeadlineExceeded):
                     raise
                 except Exception as exc:
-                    self._error(id, v["url"], exc)
+                    failed(v["url"], exc, candidate=True)
         else:
             sources = req.get("_retry_items") or [
                 {"source_type": req["source_type"], "source": s} for s in req["sources"]
             ]
-            for item in sources:
+            direct_sources = all(item["source_type"] == "video" for item in sources)
+            if direct_sources:
+                total = len(sources)
+                self.db.update_job(id, total_count=total, discovery_complete=True)
+            for source_index, item in enumerate(sources):
                 self._check(cancel, deadline)
                 source = item["source"]
                 st = item["source_type"]
@@ -426,17 +434,22 @@ class Worker:
                             )
                 try:
                     if st == "video":
+                        if not direct_sources:
+                            total += 1
+                            self.db.update_job(
+                                id,
+                                total_count=total,
+                                discovery_complete=source_index == len(sources) - 1,
+                            )
                         u = urlsplit(source)
                         q = parse_qs(u.query)
                         vid = q.get("v", [u.path.rstrip("/").split("/")[-1]])[0]
                         if mode == "quick":
                             entry = extract(
                                 url
-                            )  # A standalone video has no flat listing.
+                            )  # No flat listing for a standalone video.
                         else:
                             entry = {"id": vid, "url": source}
-                        total += 1
-                        self.db.update_job(id, total_count=total)
                         ingest(
                             entry,
                             item.get("origin_source", source),
@@ -467,7 +480,11 @@ class Worker:
                         )
                     )
                     total += len(entries)
-                    self.db.update_job(id, total_count=total)
+                    self.db.update_job(
+                        id,
+                        total_count=total,
+                        discovery_complete=source_index == len(sources) - 1,
+                    )
                     playlist = None
                     if st == "playlist":
                         playlist = {
@@ -478,8 +495,10 @@ class Worker:
                     for entry, short_evidence in entries:
                         self._check(cancel, deadline)
                         if not isinstance(entry, dict):
-                            self._error(
-                                id, source, ValueError("Một mục nguồn không khả dụng.")
+                            failed(
+                                source,
+                                ValueError("Một mục nguồn không khả dụng."),
+                                candidate=True,
                             )
                             continue
                         entry_url = entry.get("url") or entry.get("webpage_url") or ""
@@ -506,17 +525,18 @@ class Worker:
                                 ),
                                 None,
                             )
-                            self.db.resource(
-                                id,
-                                {
-                                    "id": str(entry["id"]),
-                                    "title": str(entry.get("title") or entry["id"]),
-                                    "url": entry_url,
-                                    "kind": resource_kind,
-                                    "thumbnail_url": thumb,
-                                },
-                            )
-                            self.db.increment(id, scanned_count=1, matched_count=1)
+                            with self._publication(id, cancel, deadline):
+                                self.db.resource(
+                                    id,
+                                    {
+                                        "id": str(entry["id"]),
+                                        "title": str(entry.get("title") or entry["id"]),
+                                        "url": entry_url,
+                                        "kind": resource_kind,
+                                        "thumbnail_url": thumb,
+                                    },
+                                )
+                                self.db.increment(id, scanned_count=1, matched_count=1)
                             continue
                         try:
                             ingest(entry, source, playlist, shorts=short_evidence)
@@ -532,8 +552,7 @@ class Worker:
                                 "youtube.com/shorts/" in str(entry.get(k) or "")
                                 for k in ("url", "webpage_url")
                             )
-                            self._error(
-                                id,
+                            failed(
                                 err_source,
                                 exc,
                                 retry_item={
@@ -545,11 +564,12 @@ class Worker:
                                 }
                                 if VIDEO_ID.fullmatch(str(entry.get("id") or ""))
                                 else item,
+                                candidate=True,
                             )
                 except (ExtractionCancelled, JobDeadlineExceeded):
                     raise
                 except Exception as exc:
-                    self._error(id, source, exc, retry_item=item)
+                    failed(source, exc, retry_item=item, candidate=st == "video")
         self._check(cancel, deadline)
         with self.db.lock:
             j = self.db.job(id)
@@ -562,4 +582,11 @@ class Worker:
                 if j["failed_count"]
                 else "completed"
             )
-            self.db.update_job(id, status=status, phase=status, finished_at=now())
+            self.db.update_job(
+                id,
+                status=status,
+                phase=status,
+                finished_at=now(),
+                discovery_complete=True,
+                total_count=total if kind == "crawl" else len(ids),
+            )

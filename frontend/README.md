@@ -1,6 +1,6 @@
 # TubeScope frontend
 
-Vietnamese research workspace built with Next.js 16, React 19, TypeScript, Tailwind CSS 4 and official shadcn/ui Radix components.
+Vietnamese YouTube metadata storage workspace built with Next.js 16, React 19, TypeScript, Tailwind CSS 4 and official shadcn/ui Radix components.
 
 Use the repository's launcher to run the frontend and backend together. For frontend development alone:
 

@@ -90,3 +90,12 @@ API tương tác: [Swagger](http://127.0.0.1:8765/docs). Hợp đồng dữ li�
 ## Giới hạn vận hành
 
 YouTube có thể đổi giao diện, giới hạn tần suất hoặc yêu cầu xác minh; ứng dụng hiển thị lỗi thật và không thay bằng dữ liệu mẫu. Tốc độ phụ thuộc nguồn, lượng ứng viên, bộ lọc và mạng. Không cấu hình cookie/tài khoản trong phiên bản này. Tác vụ đang chạy khi backend dừng sẽ được đánh dấu gián đoạn khi khởi động lại; không báo hoàn tất giả.
+
+
+### Kho lưu trữ và lọc kết quả
+
+Kho hiển thị ngày giờ lưu từng video và lần lưu gần nhất theo kênh, playlist, danh mục. Khám phá mặc định đưa kết quả vừa thu thập lên đầu; có thời gian xử lý, lúc kết thúc, ước tính còn lại và hủy giữ kết quả. Nguồn tìm thấy mở trực tiếp trên YouTube.
+
+Thời lượng/lượt xem sơ bộ và bộ lọc tìm kiếm YouTube nằm ở bảng nguồn. Danh mục, lượt thích, trạng thái trực tiếp, mức metadata, khoảng ngày đăng/ngày lưu nằm trong **Lọc kết quả đã thu thập**. Bộ lọc áp dụng trên toàn bộ dữ liệu trước phân trang, dùng chung cho CSV và không tạo lượt cào mới.
+
+Kiểm tra giao diện thực và vòng đời worker biệt lập: từ `backend/` chạy `uv run --with playwright python ../scripts/storage_check.py --lifecycle`. Dữ liệu kiểm thử chỉ nằm trong SQLite tạm, không ghi vào kho thật.

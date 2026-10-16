@@ -412,3 +412,30 @@
 .history-day-heading span { color: var(--muted-foreground); font-size: 12px; }
 @media (max-width: 1100px) { .history-date-fields { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media (max-width: 600px) { .history-date-fields { grid-template-columns: minmax(0,1fr); } .history-filters { padding: 0 18px 20px; } .history-filter-actions { width: 100%; } }
+
+/* Source controls describe a crawl; result controls only change the saved view. */
+.source-prefilters, .native-search-section { border-top: 1px solid var(--border); padding-top: 20px; }
+.native-search-section { display: flex; flex-direction: column; gap: 10px; }
+.native-search-section > p { margin: 0; }
+.source-panel .source-prefilters > p { line-height: 1.7; }
+.result-filters { margin: 0 24px 20px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 16px; background: var(--background); }
+.result-filters > summary > span { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.result-filter-description { max-width: 80ch; font-size: 12px; color: var(--muted-foreground); line-height: 1.7; margin: 4px 0 18px; }
+.result-filter-form { display: flex; flex-direction: column; gap: 18px; padding-bottom: 10px; }
+.result-filter-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 20px; align-items: start; }
+.result-filter-grid > * { min-width: 0; }
+.result-filter-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.result-filter-form [data-slot='alert-description'] a { text-decoration: underline; text-underline-offset: 3px; }
+.video-saved-at { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; font-size: 11px; color: var(--muted-foreground); line-height: 1.6; }
+.video-saved-at time { font-variant-numeric: tabular-nums; }
+.brand { font-size: 21px; }
+@media (max-width: 980px) { .result-filters { margin-left: 18px; margin-right: 18px; } .result-filter-grid { grid-template-columns: minmax(0,1fr); } }
+@media (min-width: 761px) and (max-width: 1490px) { .video-saved-at { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 760px) { .video-saved-at { gap: 5px; } }
+
+.job-timing-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; margin: 0; }
+.job-timing-grid > div { min-width: 0; }
+.job-timing-grid dt { font-size: 11px; color: var(--muted-foreground); margin-bottom: 4px; }
+.job-timing-grid dd { margin: 0; font-size: 12px; font-weight: 550; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.job-reason { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.7; }
+@media (max-width: 980px) { .job-timing-grid { grid-template-columns: minmax(0,1fr); gap: 10px; } }

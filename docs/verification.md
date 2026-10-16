@@ -4,9 +4,9 @@ The delivered application runs locally in production mode at http://localhost:30
 
 ## Automated checks
 
-- Backend: `uv run pytest -q` — **39 passed**, including cancellation/recovery, metadata exclusions, deduplication, review preservation, CSV safety, and playlist/Shorts provenance across retries and restart.
+- Backend: `uv run pytest -q` — **123 passed**, including cancellation/recovery, metadata exclusions, deduplication, review preservation, CSV safety, and playlist/Shorts provenance across retries and restart.
 - Backend Ruff check/format and lock validation passed.
-- Frontend: **9 tests passed**; ESLint, TypeScript and `next build` passed.
+- Frontend: **19 tests passed**; ESLint, TypeScript and `next build` passed.
 - Launcher: **1 regression passed**, covering descendants surviving an exited process-group leader.
 - Production-only npm audit: **0 vulnerabilities**. Full development-tool audit still reports 9 transitive advisories; no forced dependency downgrades applied.
 - Backend test client emits one dependency deprecation warning recommending httpx2. Tests and runtime are functional with the locked dependencies.
@@ -75,3 +75,24 @@ Final backend suite: **75 passed**; frontend: **11 passed**. API tests cover loc
 `scripts/history_check.py` uses only real persisted history and verifies quick filters, month selection, empty state, clear, reversed dates, reload, Back/Forward, grouping, counts, desktop/mobile layout and axe. It creates no jobs. The screenshot is generated from the actual page.
 
 Visual verification caught a stale persisted Turbopack CSS build cache: new rules were absent from the built stylesheet despite current source. Build filesystem caching is disabled, and an optional `TUBESCOPE_NEXT_DIST_DIR` supports an isolated frontend build while backend crawls continue. Browser assertions check the actual grid and padding, not just the presence of controls.
+
+## Storage workflow, arrival ordering and result filters
+
+Current backend suite: **123 passed**; frontend: **19 passed**. Ruff check/format, ESLint, TypeScript and production build pass. Independent review confirmed per-job arrival ordering and identified a cancellation publication race; publication, completion counters and cancellation now share one lock, with extraction outside it. Eleven focused cancellation/publication/counter cases were independently rerun.
+
+The warehouse is labeled Kho lưu trữ. Video rows and details show first saved timestamps; channel/playlist/category cards show the latest first-save timestamp among their stored videos. Refresh and repeated save preserve original timestamps.
+
+`storage_check.py --lifecycle` reads the real warehouse without changes and runs active/error/cancel/save scenarios against a separate temporary SQLite database with a controlled test extractor. It checks live arrivals despite decreasing views, ticking/frozen timers and ETA, source links without job creation, cancellation retaining results, saved dates, visible source errors, separate pre/post filters, validation, URL reload/navigation, server totals and identical CSV filters. Desktop and 390px mobile axe A/AA audits report zero violations and no horizontal overflow. The production extractor and warehouse never use fixture data.
+
+`category_check.py` now verifies category selection in result filters, retained selection, keyboard/Escape/focus, URL category26, reload/reset and no crawl POST. `history_check.py` still passes the date/month regression; its URL assertion now waits for navigation rather than reading before router completion. Earlier sections record historical evidence rather than the latest test counts.
+
+Reproduce from the project root:
+
+```sh
+cd backend
+uv run --with playwright python ../scripts/storage_check.py --lifecycle
+uv run --with playwright python ../scripts/category_check.py
+uv run --with playwright python ../scripts/history_check.py
+```
+
+ETA is an estimate based on elapsed processing and completed discovered occurrences. It requires final discovery plus at least three completed occurrences, excludes waiting in the queue, and is suppressed for legacy jobs lacking these counters. Prior interrupted jobs without a persisted reason explicitly state that the earlier version did not record one.

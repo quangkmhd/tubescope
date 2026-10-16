@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import Field, model_validator
@@ -264,15 +264,32 @@ def create_app(db_path=None, extractor=None):
         return db.resources(id)
 
     def video_filters(
-        scope="library",
-        job_id=None,
-        q="",
-        status="all",
-        existing="all",
-        group_kind=None,
-        group_key=None,
-        content_type="all",
+        scope: Literal["library", "job"] = "library",
+        job_id: str | None = None,
+        q: str = Query("", max_length=1000),
+        status: str = "all",
+        existing: str = "all",
+        group_kind: str | None = None,
+        group_key: str | None = None,
+        content_type: str = "all",
+        duration_min: float | None = Query(None, ge=0, allow_inf_nan=False),
+        duration_max: float | None = Query(None, ge=0, allow_inf_nan=False),
+        views_min: int | None = Query(None, ge=0, le=2**63 - 1),
+        views_max: int | None = Query(None, ge=0, le=2**63 - 1),
+        likes_min: int | None = Query(None, ge=0, le=2**63 - 1),
+        likes_max: int | None = Query(None, ge=0, le=2**63 - 1),
+        category: str = "all",
+        live_status: str = "all",
+        metadata_level: str = "all",
+        uploaded_from: str | None = None,
+        uploaded_to: str | None = None,
+        saved_from: str | None = None,
+        saved_to: str | None = None,
+        time_zone: str = "UTC",
+        channel: str = Query("", max_length=1000),
+        channel_id: str | None = None,
     ):
+        filters = dict(locals())
         if scope == "job":
             if not job_id:
                 raise HTTPException(422, "scope=job cần job_id.")
@@ -281,39 +298,17 @@ def create_app(db_path=None, extractor=None):
             raise HTTPException(422, "Bộ lọc video đã lưu không hợp lệ.")
         if group_kind not in {None, "channels", "playlists", "categories"}:
             raise HTTPException(422, "Nhóm không hợp lệ.")
-        return dict(
-            scope=scope,
-            job_id=job_id,
-            q=q,
-            status=status,
-            existing=existing,
-            group_kind=group_kind,
-            group_key=group_key,
-            content_type=content_type,
-        )
+        db._where(**filters)
+        return filters
 
     @app.get("/api/videos")
     def videos(
-        scope: Literal["library", "job"] = "library",
-        job_id: str | None = None,
         page: int = Query(1, ge=1),
         page_size: int = Query(50, ge=1, le=100),
-        q: str = Query("", max_length=1000),
-        sort: str = "views",
-        status: str = "all",
-        existing: str = "all",
-        group_kind: str | None = None,
-        group_key: str | None = None,
-        content_type: str = "all",
+        sort: str | None = None,
+        filters: dict = Depends(video_filters),
     ):
-        return db.videos(
-            page=page,
-            page_size=page_size,
-            sort=sort,
-            **video_filters(
-                scope, job_id, q, status, existing, group_kind, group_key, content_type
-            ),
-        )
+        return db.videos(page=page, page_size=page_size, sort=sort, **filters)
 
     @app.get("/api/videos/{id}")
     def video_get(id: str):
@@ -388,20 +383,10 @@ def create_app(db_path=None, extractor=None):
 
     @app.get("/api/export.csv")
     def export(
-        scope: Literal["library", "job"] = "library",
-        job_id: str | None = None,
         video_ids: str | None = None,
-        group_kind: str | None = None,
-        group_key: str | None = None,
-        q: str = Query("", max_length=1000),
-        status: str = "all",
-        content_type: str = "all",
-        existing: str = "all",
-        sort: str = "views",
+        sort: str | None = None,
+        filters: dict = Depends(video_filters),
     ):
-        filters = video_filters(
-            scope, job_id, q, status, existing, group_kind, group_key, content_type
-        )
         if video_ids is not None:
             ids = list(dict.fromkeys(s for s in video_ids.split(",") if s))
             if len(ids) > 1000:
@@ -409,10 +394,7 @@ def create_app(db_path=None, extractor=None):
             filters["video_ids"] = ids
         # Validate ahead of starting the streaming response, to preserve meaningful HTTP errors.
         db._where(**filters)
-        from tubescope.database import SORTS
-
-        if sort not in SORTS:
-            raise HTTPException(422, "Sắp xếp không hợp lệ.")
+        db.ordering(sort, **filters)
 
         def stream():
             yield "\ufeff"

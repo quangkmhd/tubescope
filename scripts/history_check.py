@@ -1,6 +1,7 @@
 """Read-only browser acceptance for real persisted history date/month filters."""
 import calendar
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
@@ -21,7 +22,7 @@ with sync_playwright() as p:
     assert page.locator('.history-filters').evaluate('(element)=>getComputedStyle(element).paddingLeft') == '24px'
     page.get_by_role('radio',name='Hôm nay',exact=True).check()
     expect(page.locator('#history-from')).not_to_have_value('')
-    assert 'page' not in parse_qs(urlparse(page.url).query)
+    expect(page).not_to_have_url(re.compile(r'[?&]page='))
     expect(page.locator('.history-row').first).to_be_visible()
     page.locator('#history-month').fill('2020-02')
     expect(page.locator('#history-from')).to_have_value('2020-02-01')
