@@ -59,6 +59,7 @@ class Database:
         CREATE INDEX IF NOT EXISTS category_video ON video_categories(category_key,video_id);
         CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,status TEXT NOT NULL,created_at TEXT NOT NULL,data TEXT NOT NULL,request TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status,created_at);
+        CREATE INDEX IF NOT EXISTS jobs_created ON jobs(created_at);
         CREATE TABLE IF NOT EXISTS job_videos(job_id TEXT NOT NULL REFERENCES jobs(id),video_id TEXT NOT NULL REFERENCES videos(id),existing INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(job_id,video_id));
         CREATE TABLE IF NOT EXISTS resources(job_id TEXT NOT NULL REFERENCES jobs(id),id TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(job_id,id));
         """)
@@ -480,12 +481,24 @@ class Database:
             job = self.job(id)
             return self.update_job(id, **{k: job[k] + v for k, v in counts.items()})
 
-    def jobs(self, page=1, page_size=20):
+    def jobs(self, page=1, page_size=20, *, created_from=None, created_before=None):
+        clauses, values = [], []
+        if created_from:
+            clauses.append("created_at >= ?")
+            values.append(created_from)
+        if created_before:
+            clauses.append("created_at < ?")
+            values.append(created_before)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
         with self.lock:
-            count = self.conn.execute("SELECT count(*) FROM jobs").fetchone()[0]
+            count = self.conn.execute(
+                "SELECT count(*) FROM jobs" + where, values
+            ).fetchone()[0]
             rows = self.conn.execute(
-                "SELECT data FROM jobs ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                (page_size, (page - 1) * page_size),
+                "SELECT data FROM jobs"
+                + where
+                + " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
+                (*values, page_size, (page - 1) * page_size),
             ).fetchall()
         return {
             "items": [json.loads(r[0]) for r in rows],

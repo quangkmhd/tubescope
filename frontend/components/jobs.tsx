@@ -13,6 +13,8 @@ import { api, activeJob, count, date, jobLabels, post, query } from '@/lib/api';
 import { ErrorState, LoadingRows, Pagination } from './results';
 import { Thumbnail } from './video-detail';
 import type { Job, Resource, Page } from '@/lib/types';
+import { HistoryFilters } from './history-filters';
+import { groupHistoryByDay, type HistoryRange } from '@/lib/history';
 
 const phaseLabels: Record<string,string> = { queued: 'Đang chờ lượt', extracting: 'Đang lấy metadata', discovering: 'Đang tìm video', enriching: 'Đang bổ sung metadata', saving: 'Đang lưu vào kho', completed: 'Thu thập hoàn tất', running: 'Đang xử lý nguồn', fetching: 'Đang truy vấn YouTube', scanning: 'Đang quét nguồn', filtering: 'Đang kiểm tra bộ lọc', cancelled: 'Đã dừng thu thập', failed: 'Lượt thu thập thất bại', interrupted: 'Lượt thu thập bị gián đoạn', partial: 'Một số nguồn chưa hoàn tất' };
 export function JobProgress({ job, onJob, reload }: { job: Job; onJob: (job: Job) => void; reload: () => void }) {
@@ -50,10 +52,25 @@ export function ResourceResults({ job, onJob }: { job: Job; onJob: (job: Job) =>
   if (!data?.items.length) return null;
   return <section className="resource-section"><div className="section-caption"><h3>Kênh & playlist tìm thấy</h3><Badge variant="secondary">{count(data.items.length)} nguồn</Badge></div><p>Mở một nguồn để bắt đầu thu thập video trong đó.</p>{actionError && <Alert variant="destructive"><AlertTitle>Chưa mở được nguồn</AlertTitle><AlertDescription>{actionError}</AlertDescription></Alert>}<div className="resource-grid">{data.items.slice((page-1)*24,page*24).map(resource => <article className="resource-card" key={`${resource.kind}-${resource.id}`}><Thumbnail src={resource.thumbnail_url} /><div><Badge variant="outline">{resource.kind === 'channel' ? <Radio /> : <ListVideo />}{resource.kind === 'channel' ? 'Kênh' : 'Playlist'}</Badge><h4>{resource.title}</h4><Button variant="outline" disabled={!!busy} onClick={() => open(resource)}>{busy === resource.id ? <LoaderCircle className="animate-spin" aria-hidden="true" data-icon="inline-start" /> : <ArrowUpRight aria-hidden="true" data-icon="inline-start" />}Mở nguồn</Button></div></article>)}</div>{data.items.length > 24 && <Pagination page={page} pageSize={24} total={data.items.length} onChange={setPage} />}</section>;
 }
-export function JobHistory({ page, onPage }: { page: number; onPage: (page: number) => void }) {
-  const { data, error, mutate } = useSWR<Page<Job>>(query('/api/jobs', { page, page_size: 20 }), api, { refreshInterval: data => data?.items.some(activeJob) ? 3000 : 0 });
-  if (error) return <ErrorState error={error} retry={() => mutate()} />;
-  if (!data) return <LoadingRows />;
-  if (!data.items.length) return <Empty className="research-empty"><EmptyHeader><EmptyMedia variant="icon"><History /></EmptyMedia><EmptyTitle>Chưa có lượt thu thập</EmptyTitle><EmptyDescription>Các lượt thu thập, lưu và cập nhật sẽ được lưu ở đây để bạn tiếp tục sau.</EmptyDescription></EmptyHeader></Empty>;
-  return <><div className="history-list">{data.items.map(job => <article className="history-row" key={job.id}><div className="history-icon">{activeJob(job) ? <LoaderCircle className="animate-spin" /> : <History />}</div><div><h3><Link href={`/?view=discover&job=${encodeURIComponent(job.id)}`}>{job.kind === 'refresh' ? 'Cập nhật metadata' : job.kind === 'save' ? 'Bổ sung & lưu video' : job.sources.join(', ')}</Link></h3><p>{date(job.created_at)} · {count(job.scanned_count)} đã quét · {count(job.matched_count)} phù hợp{job.failed_count > 0 ? ` · ${count(job.failed_count)} lỗi` : ''}</p>{job.error && <p className="history-error">{job.error}</p>}</div><Badge variant={activeJob(job) ? 'default' : 'secondary'}>{jobLabels[job.status]}</Badge><Button asChild variant="ghost" size="icon"><Link href={`/?view=discover&job=${encodeURIComponent(job.id)}`} aria-label={`Mở lượt thu thập ${job.id}`}><ArrowUpRight /></Link></Button></article>)}</div><Pagination page={page} pageSize={20} total={data.total} onChange={onPage} /></>;
+export function JobHistory({ page, onPage, from, to, onFilter }: HistoryRange & { page: number; onPage: (page: number) => void; onFilter: (range:HistoryRange)=>void }) {
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const { data, error, mutate } = useSWR<Page<Job>>(query('/api/jobs', { page, page_size: 20, date_from:from, date_to:to, time_zone:timeZone }), api, { refreshInterval: data => data?.items.some(activeJob) ? 3000 : 0 });
+  const groups = groupHistoryByDay(data?.items ?? [],timeZone);
+  const filtered = !!(from || to);
+  return <>
+    <HistoryFilters key={`${from}-${to}`} from={from} to={to} onChange={onFilter} />
+    {error ? <ErrorState error={error} retry={()=>mutate()} /> : !data ? <LoadingRows /> : !data.items.length ?
+      <Empty className="research-empty"><EmptyHeader><EmptyMedia variant="icon"><History /></EmptyMedia><EmptyTitle>{filtered ? 'Không có lượt thu thập trong khoảng ngày này' : 'Chưa có lượt thu thập'}</EmptyTitle><EmptyDescription>{filtered ? 'Thử khoảng thời gian khác hoặc xóa bộ lọc để xem toàn bộ lịch sử.' : 'Các lượt thu thập, lưu và cập nhật sẽ được lưu ở đây để bạn tiếp tục sau.'}</EmptyDescription></EmptyHeader></Empty> : <>
+      <p className="history-summary" role="status">{count(data.total)} lượt thu thập{filtered ? ' trong khoảng đã chọn' : ''} · Mới nhất trước</p>
+      <div className="history-list">{groups.map(group=><section key={group.key} aria-labelledby={`history-day-${group.key}`}>
+        <div className="history-day-heading"><h3 id={`history-day-${group.key}`}>{new Intl.DateTimeFormat('vi-VN',{dateStyle:'full',timeZone}).format(new Date(group.items[0].created_at))}</h3><span>{group.items.length} lượt trên trang</span></div>
+        {group.items.map(job=><article className="history-row" key={job.id}>
+          <div className="history-icon">{activeJob(job) ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <History aria-hidden="true" />}</div>
+          <div><h4><Link href={`/?view=discover&job=${encodeURIComponent(job.id)}`}>{job.kind === 'refresh' ? 'Cập nhật metadata' : job.kind === 'save' ? 'Bổ sung & lưu video' : job.sources.join(', ')}</Link></h4><p><time dateTime={job.created_at}>{new Intl.DateTimeFormat('vi-VN',{timeStyle:'short',timeZone}).format(new Date(job.created_at))}</time> · {count(job.scanned_count)} đã xét · {count(job.matched_count)} phù hợp{job.failed_count > 0 ? ` · ${count(job.failed_count)} lỗi` : ''}</p>{job.error && <p className="history-error">{job.error}</p>}</div>
+          <Badge variant={activeJob(job) ? 'default' : 'secondary'}>{jobLabels[job.status]}</Badge><Button asChild variant="ghost" size="icon"><Link href={`/?view=discover&job=${encodeURIComponent(job.id)}`} aria-label={`Mở lượt thu thập ${job.id}`}><ArrowUpRight /></Link></Button>
+        </article>)}
+      </section>)}</div>
+      <Pagination page={page} pageSize={20} total={data.total} onChange={onPage} />
+    </>}
+  </>;
 }

@@ -291,6 +291,69 @@ def test_queue_is_bounded_and_jobs_paginated(tmp_path):
         app.state.db.close()
 
 
+def test_history_date_range_uses_local_day_boundaries_and_filters_before_pagination(
+    setup,
+):
+    c, app, _ = setup
+    times = [
+        "2026-10-15T16:59:59+00:00",
+        "2026-10-15T17:00:00+00:00",
+        "2026-10-16T16:59:59.999999+00:00",
+        "2026-10-16T17:00:00+00:00",
+    ]
+    ids = []
+    for stamp in times:
+        job = app.state.worker.submit(
+            {"source_type": "keyword", "sources": ["history test"]}, wake=False
+        )
+        job.update(status="completed", created_at=stamp)
+        with app.state.db.lock, app.state.db.conn:
+            import json
+
+            app.state.db.conn.execute(
+                "UPDATE jobs SET status='completed',created_at=?,data=? WHERE id=?",
+                (stamp, json.dumps(job), job["id"]),
+            )
+        ids.append(job["id"])
+    params = {
+        "date_from": "2026-10-16",
+        "date_to": "2026-10-16",
+        "time_zone": "Asia/Bangkok",
+        "page_size": 1,
+    }
+    first = c.get("/api/jobs", params=params).json()
+    assert first["total"] == 2
+    assert [j["id"] for j in first["items"]] == [ids[2]]
+    second = c.get("/api/jobs", params={**params, "page": 2}).json()
+    assert [j["id"] for j in second["items"]] == [ids[1]]
+    assert (
+        c.get(
+            "/api/jobs", params={"date_from": "2026-11-01", "time_zone": "Asia/Bangkok"}
+        ).json()["total"]
+        == 0
+    )
+    assert (
+        c.get(
+            "/api/jobs", params={"date_to": "2026-10-15", "time_zone": "Asia/Bangkok"}
+        ).json()["total"]
+        == 1
+    )
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"date_from": "2026-02-30"},
+        {"date_to": "not-a-date"},
+        {"date_from": "2026-11-01", "date_to": "2026-10-01"},
+        {"time_zone": "Not/A_Zone"},
+    ],
+)
+def test_history_rejects_invalid_date_filters(setup, params):
+    c, _, _ = setup
+    assert c.get("/api/jobs", params=params).status_code == 422
+
+
 def test_export_obeys_group_ids_status_and_search(setup):
     c, _, _ = setup
     j = crawl(c).json()

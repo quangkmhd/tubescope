@@ -43,6 +43,8 @@ Return 202 Job. `Job = {id:string,status:"queued"|"running"|"completed"|"partial
 
 New jobs also expose `prefiltered_count:number` (listing candidates rejected before detailed extraction) and `detailed_count:number` (successful detailed extractions). Older jobs may omit these fields. `scanned_count` counts unique candidates considered, including early rejections, not network requests. Full-mode crawls prefilter known duration/view-count mismatches; missing information, active livestreams and rounded view-count boundary candidates continue to detailed extraction. Every surviving video is checked again using full metadata. The source limit still applies before filtering.
 
+`GET /api/jobs` also accepts optional `date_from` / `date_to` (YYYY-MM-DD) and `time_zone` (IANA name, default UTC). Filter by creation date, inclusive of both local calendar days, before count/pagination. End date maps to the next local midnight exclusively, including daylight-saving transitions. Invalid dates, unknown zones and reversed ranges return 422. The UI uses the browser's local zone and persists dates in URL `history_from` / `history_to`; changing filters resets the page.
+
 `GET /jobs?page=1&page_size=20` -> Page<Job>.
 `GET /jobs/{id}` -> Job.
 `POST /jobs/{id}/cancel` -> Job.

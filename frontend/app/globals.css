@@ -195,8 +195,8 @@
 .resource-card [data-slot='button'] { min-height: 36px; height: 36px; font-size: 12px; }
 .history-row { display: flex; align-items: center; gap: 16px; padding: 22px 24px; border-bottom: 1px solid var(--border); }
 .history-row > div:nth-child(2) { min-width: 0; flex: 1; }
-.history-row h3 { font-size: 14px; font-weight: 570; overflow-wrap: anywhere; }
-.history-row h3 a:hover { color: var(--primary); }
+.history-row h4 { font-size: 14px; font-weight: 570; overflow-wrap: anywhere; }
+.history-row h4 a:hover { color: var(--primary); }
 .history-row p { margin-top: 5px; font-size: 12px; color: var(--muted-foreground); }
 .history-icon { background: var(--muted); width: 40px; height: 40px; display: grid; place-items: center; border-radius: 10px; color: var(--muted-foreground); }
 .history-icon svg { width: 18px; height: 18px; }
@@ -401,3 +401,14 @@
 @media (max-width: 760px) { .group-breadcrumb a { min-height: 44px; } .resource-card [data-slot='button'] { min-height: 44px; height: 44px; } }
 
 .toaster[data-sonner-toaster][data-sonner-theme='light'] { --success-text: var(--secondary-foreground); --success-bg: var(--secondary); --success-border: var(--border); }
+
+.history-filters { padding: 0 24px 24px; display: flex; flex-direction: column; gap: 16px; border-bottom: 1px solid var(--border); }
+.history-presets { width: 100%; flex-wrap: wrap; justify-content: flex-start; }
+.history-date-fields { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)) auto; align-items: end; gap: 16px; }
+.history-filter-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.history-summary { padding: 16px 24px; color: var(--muted-foreground); font-size: 13px; }
+.history-day-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 24px; background: var(--muted); border-bottom: 1px solid var(--border); }
+.history-day-heading h3 { font-size: 14px; font-weight: 600; }
+.history-day-heading span { color: var(--muted-foreground); font-size: 12px; }
+@media (max-width: 1100px) { .history-date-fields { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 600px) { .history-date-fields { grid-template-columns: minmax(0,1fr); } .history-filters { padding: 0 18px 20px; } .history-filter-actions { width: 100%; } }

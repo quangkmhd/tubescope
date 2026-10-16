@@ -7,8 +7,10 @@ import io
 import json
 import os
 from contextlib import asynccontextmanager
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.exceptions import RequestValidationError
@@ -209,8 +211,37 @@ def create_app(db_path=None, extractor=None):
         return worker.submit(body.model_dump(mode="json"))
 
     @app.get("/api/jobs")
-    def jobs_page(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100)):
-        return db.jobs(page, page_size)
+    def jobs_page(
+        page: int = Query(1, ge=1),
+        page_size: int = Query(20, ge=1, le=100),
+        date_from: date | None = None,
+        date_to: date | None = None,
+        time_zone: str = "UTC",
+    ):
+        try:
+            zone = ZoneInfo(time_zone)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise HTTPException(422, "Múi giờ không hợp lệ.")
+        if date_from and date_to and date_from > date_to:
+            raise HTTPException(422, "Ngày bắt đầu không được sau ngày kết thúc.")
+
+        def boundary(day):
+            return (
+                datetime.combine(day, time.min, tzinfo=zone)
+                .astimezone(timezone.utc)
+                .isoformat()
+            )
+
+        try:
+            start = boundary(date_from) if date_from else None
+            end = (
+                boundary(date_to + timedelta(days=1))
+                if date_to and date_to < date.max
+                else None
+            )
+        except OverflowError:
+            raise HTTPException(422, "Khoảng ngày vượt phạm vi hỗ trợ.")
+        return db.jobs(page, page_size, created_from=start, created_before=end)
 
     @app.get("/api/jobs/{id}")
     def job_get(id: str):
