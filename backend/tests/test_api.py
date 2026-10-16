@@ -1397,3 +1397,143 @@ def test_cancel_during_publication_waits_for_result_and_completed_counters(
             ]
             == 1
         )
+
+
+@pytest.mark.parametrize(
+    "kind,target",
+    [("video", "videos"), ("channel", "channels"), ("playlist", "playlists")],
+)
+def test_keyword_in_selected_kind_searches_that_kind_without_crawling_found_sources(
+    setup, kind, target
+):
+    from tubescope.core import native_search_url
+
+    c, app, extractor = setup
+    calls = []
+    result = {
+        "channel": {
+            "id": "UC_test",
+            "title": "Kênh nhạc vàng",
+            "url": "https://www.youtube.com/channel/UC_test",
+        },
+        "playlist": {
+            "id": "PL_test",
+            "title": "Playlist nhạc vàng",
+            "url": "https://www.youtube.com/playlist?list=PL_test",
+        },
+        "video": raw(),
+    }[kind]
+
+    def extract(url, **kwargs):
+        calls.append((url, kwargs))
+        return {"entries": [result]} if kwargs.get("flat") else raw()
+
+    extractor.extract = extract
+    response = c.post(
+        "/api/jobs",
+        json={
+            "source_type": kind,
+            "sources": ["nhạc vàng"],
+            "limit": 2,
+            "native": {"result_type": "movies"},
+        },
+    )
+    assert response.status_code == 202, response.json()
+    job = finished(c, response.json()["id"])
+    assert job["status"] == "completed", job
+    assert calls[0][0] == native_search_url("nhạc vàng", {"result_type": target})
+    assert calls[0][1]["flat"] is True
+    assert job["total_count"] == job["processed_count"] == 1
+    if kind == "video":
+        assert len(calls) == 2
+        assert (
+            c.get("/api/videos", params={"scope": "job", "job_id": job["id"]}).json()[
+                "total"
+            ]
+            == 1
+        )
+    else:
+        assert len(calls) == 1
+        resources = c.get(f"/api/jobs/{job['id']}/resources").json()["items"]
+        assert len(resources) == 1 and resources[0]["kind"] == kind
+        assert (
+            c.get("/api/videos", params={"scope": "job", "job_id": job["id"]}).json()[
+                "total"
+            ]
+            == 0
+        )
+
+
+def test_mixed_keyword_and_direct_video_inputs_preserve_direct_urls_and_counters(setup):
+    c, app, extractor = setup
+    calls = []
+
+    def extract(url, **kwargs):
+        calls.append((url, kwargs))
+        if kwargs.get("flat"):
+            return {"entries": [raw()]}
+        return raw(id="ccccccccccc" if "ccccccccccc" in url else "abcdefghijk")
+
+    extractor.extract = extract
+    response = c.post(
+        "/api/jobs",
+        json={
+            "source_type": "video",
+            "sources": ["nhạc vàng", "https://youtu.be/ccccccccccc"],
+            "limit": 2,
+        },
+    )
+    assert response.status_code == 202, response.json()
+    job = finished(c, response.json()["id"])
+    assert job["status"] == "completed", job
+    assert job["total_count"] == job["processed_count"] == job["matched_count"] == 2
+    assert len([call for call in calls if call[1].get("flat")]) == 1
+    assert (
+        c.get("/api/videos", params={"scope": "job", "job_id": job["id"]}).json()[
+            "total"
+        ]
+        == 2
+    )
+
+
+@pytest.mark.parametrize(
+    "source_type,source",
+    [
+        ("keyword", "nhạc vàng"),
+        ("search", "https://www.youtube.com/results?search_query=nhac+vang"),
+    ],
+)
+@pytest.mark.parametrize(
+    "target,kind", [("channels", "channel"), ("playlists", "playlist")]
+)
+def test_generic_native_resource_search_exposes_target_for_resource_only_ui(
+    setup, source_type, source, target, kind
+):
+    c, app, extractor = setup
+
+    def extract(url, **kwargs):
+        assert kwargs.get("flat") is True
+        return {
+            "entries": [
+                {
+                    "id": "UC_test" if kind == "channel" else "PL_test",
+                    "title": "Nguồn nhạc vàng",
+                    "url": "https://www.youtube.com/channel/UC_test"
+                    if kind == "channel"
+                    else "https://www.youtube.com/playlist?list=PL_test",
+                }
+            ]
+        }
+
+    extractor.extract = extract
+    response = c.post(
+        "/api/jobs",
+        json={
+            "source_type": source_type,
+            "sources": [source],
+            "native": {"result_type": target},
+        },
+    )
+    job = finished(c, response.json()["id"])
+    assert job["status"] == "completed", job
+    assert job["search_target"] == target

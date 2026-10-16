@@ -99,3 +99,6 @@ Kho hiển thị ngày giờ lưu từng video và lần lưu gần nhất theo 
 Thời lượng/lượt xem sơ bộ và bộ lọc tìm kiếm YouTube nằm ở bảng nguồn. Danh mục, lượt thích, trạng thái trực tiếp, mức metadata, khoảng ngày đăng/ngày lưu nằm trong **Lọc kết quả đã thu thập**. Bộ lọc áp dụng trên toàn bộ dữ liệu trước phân trang, dùng chung cho CSV và không tạo lượt cào mới.
 
 Kiểm tra giao diện thực và vòng đời worker biệt lập: từ `backend/` chạy `uv run --with playwright python ../scripts/storage_check.py --lifecycle`. Dữ liệu kiểm thử chỉ nằm trong SQLite tạm, không ghi vào kho thật.
+
+
+Ô Video/Kênh/Playlist nhận **từ khóa hoặc URL**. Ví dụ chọn Video rồi nhập `nhạc vàng` để tìm video; chọn Kênh/Playlist để tìm nguồn tương ứng. Có thể trộn từ khóa và URL đúng loại, mỗi nguồn một dòng. URL vẫn thu thập trực tiếp; nguồn kênh/playlist tìm qua từ khóa không tự cào video bên trong.

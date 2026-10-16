@@ -56,11 +56,12 @@ export function JobProgress({ job, onJob, reload }: { job: Job; onJob: (job: Job
     {(reason || error) && <Alert variant={job.status === 'cancelled' && !error ? 'default' : 'destructive'}><AlertTitle>{error ? 'Thao tác chưa hoàn tất' : job.status === 'cancelled' ? 'Đã hủy thu thập' : 'Lý do lỗi / gián đoạn'}</AlertTitle><AlertDescription>{error && <p>{error}</p>}{reason && <p className="job-reason">{reason}</p>}{job.errors.length > 0 && <details><summary>{count(job.errors.length)} lỗi theo nguồn/video</summary><ul className="job-errors">{job.errors.map((err,index) => <li key={index}><strong>{err.source}</strong><p>{err.message}</p></li>)}</ul></details>}</AlertDescription></Alert>}
   </section>;
 }
-export function ResourceResults({ job }: { job: Job }) {
+export function ResourceResults({ job, onlySources = false }: { job: Job; onlySources?: boolean }) {
   const { data, error, mutate } = useSWR<{ items: Resource[] }>(`/api/jobs/${encodeURIComponent(job.id)}/resources`, api, { refreshInterval: activeJob(job) ? 3000 : 0 });
   const [page, setPage] = useState(1);
   if (error) return <ErrorState title="Chưa tải được kết quả nguồn" error={error} retry={() => mutate()} />;
-  if (!data?.items.length) return null;
+  if (!data && onlySources) return <LoadingRows />;
+  if (!data?.items.length) return onlySources && !activeJob(job) ? <Empty className="research-empty"><EmptyHeader><EmptyTitle>Không tìm thấy {job.search_target === 'channels' || job.source_type === 'channel' ? 'kênh' : 'playlist'} phù hợp</EmptyTitle><EmptyDescription>Thử từ khóa khác hoặc xem lý do lỗi trong lượt tìm kiếm.</EmptyDescription></EmptyHeader></Empty> : null;
   return <section className="resource-section"><div className="section-caption"><h3>Kênh & playlist tìm thấy</h3><Badge variant="secondary">{count(data.items.length)} nguồn</Badge></div>
     <p>Mở nguồn trên YouTube trong tab mới để xem kênh hoặc playlist.</p>
     <div className="resource-grid">{data.items.slice((page-1)*24,page*24).map(resource => <article className="resource-card" key={`${resource.kind}-${resource.id}`}><Thumbnail src={resource.thumbnail_url} /><div><Badge variant="outline">{resource.kind === 'channel' ? <Radio /> : <ListVideo />}{resource.kind === 'channel' ? 'Kênh' : 'Playlist'}</Badge><h4>{resource.title}</h4><Button asChild variant="outline"><a href={resource.url} target="_blank" rel="noreferrer"><ArrowUpRight aria-hidden="true" data-icon="inline-start" />Mở nguồn</a></Button></div></article>)}</div>

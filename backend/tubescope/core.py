@@ -61,6 +61,18 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
+SEARCH_TARGETS = {"video": "videos", "channel": "channels", "playlist": "playlists"}
+
+
+def keyword_input(value: str) -> bool:
+    # URL-shaped input must pass URL validation, never silently become a query.
+    return not re.search(
+        r"(?:[a-z][a-z0-9+.-]*://|www\.|youtu\.be/|youtube\.com/|(?:javascript|data|file|mailto):)",
+        value,
+        re.I,
+    )
+
+
 def source_url(kind: str, value: str) -> str:
     value = value.strip()
     if any(ord(ch) < 32 or ord(ch) == 127 for ch in value):
@@ -70,7 +82,7 @@ def source_url(kind: str, value: str) -> str:
             not value
             or len(value) > 1000
             or value.startswith("-")
-            or re.search(r"(?:https?://|www\.|youtu\.be/|youtube\.com/)", value, re.I)
+            or not keyword_input(value)
         ):
             raise ValueError(
                 "Từ khóa không hợp lệ; dùng đúng loại nguồn cho URL YouTube."
@@ -159,6 +171,12 @@ def source_url(kind: str, value: str) -> str:
     return value
 
 
+def source_input(kind: str, value: str) -> str:
+    if kind in SEARCH_TARGETS and keyword_input(value):
+        return source_url("keyword", value)
+    return source_url(kind, value)
+
+
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -231,7 +249,7 @@ class JobRequest(StrictModel):
     @model_validator(mode="after")
     def valid(self):
         self.sources = list(
-            dict.fromkeys(source_url(self.source_type, s) for s in self.sources)
+            dict.fromkeys(source_input(self.source_type, s) for s in self.sources)
         )
         f = self.filters
         if (

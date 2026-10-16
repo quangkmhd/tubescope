@@ -4,9 +4,9 @@ The delivered application runs locally in production mode at http://localhost:30
 
 ## Automated checks
 
-- Backend: `uv run pytest -q` — **123 passed**, including cancellation/recovery, metadata exclusions, deduplication, review preservation, CSV safety, and playlist/Shorts provenance across retries and restart.
+- Backend: `uv run pytest -q` — **139 passed**, including cancellation/recovery, metadata exclusions, deduplication, review preservation, CSV safety, and playlist/Shorts provenance across retries and restart.
 - Backend Ruff check/format and lock validation passed.
-- Frontend: **19 tests passed**; ESLint, TypeScript and `next build` passed.
+- Frontend: **23 tests passed**; ESLint, TypeScript and `next build` passed.
 - Launcher: **1 regression passed**, covering descendants surviving an exited process-group leader.
 - Production-only npm audit: **0 vulnerabilities**. Full development-tool audit still reports 9 transitive advisories; no forced dependency downgrades applied.
 - Backend test client emits one dependency deprecation warning recommending httpx2. Tests and runtime are functional with the locked dependencies.
@@ -96,3 +96,12 @@ uv run --with playwright python ../scripts/history_check.py
 ```
 
 ETA is an estimate based on elapsed processing and completed discovered occurrences. It requires final discovery plus at least three completed occurrences, excludes waiting in the queue, and is suppressed for legacy jobs lacking these counters. Prior interrupted jobs without a persisted reason explicitly state that the earlier version did not record one.
+
+
+## Keyword input in selected source types
+
+Video, Channel and Playlist source inputs now accept plain keywords as well as matching YouTube URLs, including mixed multiline input. Reproduced the previous 422 for Video + “nhạc vàng” in failing API tests. Low-level URL validation remains strict; URL-shaped values are never silently converted to queries. Target selection overrides stale native result types, video-only options are omitted for resource searches, and direct collection retains source-specific filters. Resource-only jobs expose search_target and render source cards without a misleading empty video table.
+
+Backend: **139 tests passed**; frontend: **23 passed**. Ruff lint/format, frontend lint/typecheck and production build pass. Independent review found and verified the resource-only generic search UI correction.
+
+`keyword_check.py --base http://localhost:3001` used the actual frontend and real yt-dlp against YouTube, with a separate temporary SQLite database. “nhạc vàng” returned 2 full videos (6.22s), 2 channels (4.51s), and 2 playlists (4.45s). Channel/playlist searches made no recursive video collection. Mobile no-overflow and axe A/AA checks passed, with no JavaScript errors. These are observed timings, not speed guarantees. No test metadata was written to the user's warehouse.

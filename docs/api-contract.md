@@ -80,3 +80,10 @@ No fake data, no authentication/cookies, local-only by default. SQLite data live
 `sort=arrival` is only valid with scope=job and job_id. It orders first job membership descending, so a metadata refresh or repeated observation cannot move older arrivals. Omitted sort defaults to arrival for jobs and views for library API; the library UI explicitly defaults to saved. Existing views/newest/duration/updated/saved sorts remain.
 
 These result filters never create extraction jobs. Source duration/view prefilters remain separate and can avoid detailed extraction; native YouTube controls apply to keyword/search sources. Category/live-status/exact-date UI controls now filter collected results. Clicking a discovered source opens its external YouTube URL without POST /jobs.
+
+
+## Keywords in Video, Channel and Playlist inputs
+
+`source_type=video|channel|playlist` accepts matching YouTube URLs or plain keywords, including mixed multiline inputs. URLs retain strict host/type validation. URL-shaped values, credentials, custom ports, fragments and CLI flags never fall back to keyword search. Each keyword is searched with the selected result type; a channel/playlist search records discovered resources and does not recurse into their videos. Direct URLs preserve the existing collection behavior. The source limit applies separately to each input line.
+
+New Job responses expose optional `search_target` (native result type, or null for direct/mixed collection) so the UI can render source-only searches consistently, including native type selection in generic keyword/search mode. Older records may omit it. Native search options affect queries only, never direct URLs; channel/playlist queries omit video-only native filters. Playlist position filters apply only to actual playlist URLs.

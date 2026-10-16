@@ -290,3 +290,29 @@ def test_reopen_rebuilds_legacy_fts_rowids_without_touching_reviews(tmp_path):
     assert db.conn.execute("SELECT COUNT(*) FROM video_fts").fetchone()[0] == 1
     assert db.videos(q="Fresh")["total"] == 1
     db.close()
+
+
+@pytest.mark.parametrize("kind", ["video", "channel", "playlist"])
+def test_selected_source_kind_accepts_plain_keywords_but_url_validator_stays_strict(
+    kind,
+):
+    req = JobRequest(source_type=kind, sources=["  nhạc vàng  ", "nhạc vàng"])
+    assert req.sources == ["nhạc vàng"]
+    with pytest.raises(ValueError):
+        source_url(kind, "nhạc vàng")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "https://evil.com/x",
+        "http://127.0.0.1/x",
+        "ftp://youtube.com/x",
+        "https://u:p@youtube.com/watch?v=abcdefghijk",
+        "--exec touch /tmp/x",
+    ],
+)
+def test_keyword_capable_sources_do_not_turn_unsafe_urls_or_flags_into_searches(value):
+    for kind in ["video", "channel", "playlist"]:
+        with pytest.raises(ValueError):
+            JobRequest(source_type=kind, sources=[value])

@@ -9,8 +9,10 @@ from contextlib import contextmanager
 from urllib.parse import parse_qs, urlsplit
 
 from .core import (
+    SEARCH_TARGETS,
     VIDEO_ID,
     JobRequest,
+    keyword_input,
     listing_rejects,
     matches,
     native_search_url,
@@ -102,11 +104,17 @@ class Worker:
             request["_video_ids"] = video_ids
         if retry_items:
             request["_retry_items"] = retry_items
+        search_target = None
+        if req.source_type in {"keyword", "search"}:
+            search_target = req.native.result_type
+        elif all(keyword_input(source) for source in req.sources):
+            search_target = SEARCH_TARGETS.get(req.source_type)
         job = {
             "id": uuid.uuid4().hex,
             "status": "queued",
             "kind": kind,
             "source_type": req.source_type,
+            "search_target": search_target,
             "sources": req.sources,
             "mode": req.mode,
             "limit": req.limit,
@@ -378,7 +386,8 @@ class Worker:
                 if kind == "save":
                     self.db.save([vid])
                 if matches(v, filters) and not (
-                    req["native"]["result_type"] == "longform"
+                    req["source_type"] in {"keyword", "search"}
+                    and req["native"]["result_type"] == "longform"
                     and v["content_type"] == "shorts"
                 ):
                     self.db.link_job(id, vid, existing)
@@ -403,7 +412,10 @@ class Worker:
             sources = req.get("_retry_items") or [
                 {"source_type": req["source_type"], "source": s} for s in req["sources"]
             ]
-            direct_sources = all(item["source_type"] == "video" for item in sources)
+            direct_sources = all(
+                item["source_type"] == "video" and not keyword_input(item["source"])
+                for item in sources
+            )
             if direct_sources:
                 total = len(sources)
                 self.db.update_job(id, total_count=total, discovery_complete=True)
@@ -411,8 +423,15 @@ class Worker:
                 self._check(cancel, deadline)
                 source = item["source"]
                 st = item["source_type"]
+                native = req["native"]
+                if st in SEARCH_TARGETS and keyword_input(source):
+                    target = SEARCH_TARGETS[st]
+                    native = dict(native, result_type=target)
+                    if target in {"channels", "playlists"}:
+                        native = {"result_type": target, "order": native["order"]}
+                    st = "keyword"
                 url = (
-                    native_search_url(source, req["native"])
+                    native_search_url(source, native)
                     if st in {"keyword", "search"}
                     else source
                 )
@@ -461,8 +480,10 @@ class Worker:
                         url,
                         flat=True,
                         limit=req["limit"],
-                        start=filters.get("playlist_start"),
-                        end=filters.get("playlist_end"),
+                        start=filters.get("playlist_start")
+                        if st == "playlist"
+                        else None,
+                        end=filters.get("playlist_end") if st == "playlist" else None,
                     )
                     entries = listing.get("entries")
                     if entries is None:

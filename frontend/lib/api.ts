@@ -1,4 +1,12 @@
-import type { CrawlForm } from './types';
+import type { CrawlForm, SourceType } from './types';
+
+export const searchTargets: Partial<Record<SourceType, CrawlForm['native']['result_type']>> = { video:'videos', channel:'channels', playlist:'playlists' };
+export const keywordInput = (value: string) => !/(?:[a-z][a-z0-9+.-]*:\/\/|www\.|youtu\.be\/|youtube\.com\/|(?:javascript|data|file|mailto):)/i.test(value);
+export function searchOptions(form: CrawlForm): CrawlForm['native'] {
+  const result_type = searchTargets[form.source_type] || form.native.result_type;
+  if (['channels','playlists'].includes(result_type)) return { result_type, order:form.native.order, upload_date:'all', duration:'all', features:[] };
+  return { ...form.native, result_type };
+}
 
 export class ApiError extends Error {
   constructor(message: string, public status: number) { super(message); this.name = 'ApiError'; }
@@ -32,10 +40,16 @@ export function crawlPayload(form: CrawlForm) {
   const sources = form.sources.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
   if (!sources.length) throw new Error('Nhập ít nhất một nguồn, mỗi nguồn trên một dòng.');
   if (sources.length > 20) throw new Error('Mỗi lượt hỗ trợ tối đa 20 nguồn.');
+  const hasDirectSource = sources.some(source => !keywordInput(source));
+  const usesSearch = ['keyword','search'].includes(form.source_type) || !!searchTargets[form.source_type] && sources.some(keywordInput);
+  const options = searchOptions(form);
+  const resourcesOnly = usesSearch && ['channels','playlists'].includes(options.result_type) && !(searchTargets[form.source_type] && hasDirectSource);
   const limit = form.limit.trim() === '' ? 100 : Number(form.limit);
   if (!Number.isInteger(limit) || limit < 1 || limit > 1000) throw new Error('Giới hạn cần là số nguyên từ 1 đến 1.000.');
   const filters: Record<string, string | number | string[]> = {};
   for (const key of ['duration_min', 'duration_max', 'views_min', 'views_max', 'playlist_start', 'playlist_end'] as const) {
+    if (key.startsWith('playlist_') && (form.source_type !== 'playlist' || !hasDirectSource)) continue;
+    if (resourcesOnly && (key.startsWith('duration_') || key.startsWith('views_'))) continue;
     if (form[key] === '') continue;
     const value = Number(form[key]);
     if (!Number.isFinite(value) || value < 0 || (key.startsWith('playlist_') && (!Number.isInteger(value) || value < 1))) throw new Error('Bộ lọc số không hợp lệ. Vị trí playlist bắt đầu từ 1.');
@@ -45,12 +59,13 @@ export function crawlPayload(form: CrawlForm) {
     if (filters[min] !== undefined && filters[max] !== undefined && filters[min] > filters[max]) throw new Error('Giá trị tối thiểu không được lớn hơn tối đa.');
   }
   // Metadata durations are integer seconds; presets keep strict <3 and >20 minute boundaries.
-  if (form.duration_preset === 'short') filters.duration_max = 179;
-  if (form.duration_preset === 'long') filters.duration_min = 1201;
+  if (!resourcesOnly && form.duration_preset === 'short') filters.duration_max = 179;
+  if (!resourcesOnly && form.duration_preset === 'long') filters.duration_min = 1201;
   if (form.date_after && form.date_before && form.date_after > form.date_before) throw new Error('Ngày bắt đầu phải trước ngày kết thúc.');
   for (const key of ['category', 'date_after', 'date_before', 'live_status'] as const) if (form[key]) filters[key] = form[key];
-  if (form.content_types.length) filters.content_types = form.content_types;
-  return { source_type: form.source_type, sources, limit, mode: form.mode, existing_policy: form.existing_policy, filters, native: ['keyword', 'search'].includes(form.source_type) ? form.native : {} };
+  if (form.content_types.length && form.source_type === 'channel' && hasDirectSource) filters.content_types = form.content_types;
+  const native: Partial<CrawlForm['native']> = usesSearch ? options : {};
+  return { source_type: form.source_type, sources, limit, mode: form.mode, existing_policy: form.existing_policy, filters, native };
 }
 const numberFormat = new Intl.NumberFormat('vi-VN');
 export const count = (value: number | null | undefined) => value == null ? '—' : numberFormat.format(value);
