@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import re
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -420,6 +421,44 @@ def normalize(raw: dict, mode="full", source=None, shorts=False):
     verified = raw.get("channel_is_verified")
     out["channel_is_verified"] = verified if isinstance(verified, bool) else None
     return out
+
+
+def listing_rejects(entry, filters):
+    """Reject only known numeric mismatches; missing fields still need enrichment.
+
+    YouTube lists rounded view counts. Keep a conservative two-significant-digit
+    interval around those counts and a one-second margin for displayed duration.
+    Enrich boundary candidates. Active streams
+    have changing durations/counts, so never reject them from a listing snapshot.
+    """
+    if entry.get("is_live") or entry.get("live_status") in {
+        "is_live",
+        "is_upcoming",
+        "post_live",
+    }:
+        return False
+    for field, low, high in [
+        ("duration", "duration_min", "duration_max"),
+        ("view_count", "views_min", "views_max"),
+    ]:
+        value = entry.get(field)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        if not math.isfinite(value) or value < 0:
+            continue
+        margin = (
+            10 ** max(0, len(str(int(value))) - 2)
+            if field == "view_count" and value >= 1000
+            else 1
+            if field == "duration"
+            else 0
+        )
+        minimum, maximum = filters.get(low), filters.get(high)
+        if minimum is not None and value + margin < minimum:
+            return True
+        if maximum is not None and max(0, value - margin) > maximum:
+            return True
+    return False
 
 
 def matches(v, filters):

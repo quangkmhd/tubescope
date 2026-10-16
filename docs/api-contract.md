@@ -41,6 +41,8 @@ All durations in **seconds**, dates YYYY-MM-DD; content_types lower-case `video,
 
 Return 202 Job. `Job = {id:string,status:"queued"|"running"|"completed"|"partial"|"failed"|"cancelled"|"interrupted", kind:"crawl"|"refresh"|"save", source_type:string,sources:string[],mode:string,limit:number,phase:string,scanned_count:number,matched_count:number,failed_count:number,skipped_count:number,total_count:number|null,created_at:string,started_at:string|null,finished_at:string|null,error:string|null,errors:{source:string,message:string}[]}`.
 
+New jobs also expose `prefiltered_count:number` (listing candidates rejected before detailed extraction) and `detailed_count:number` (successful detailed extractions). Older jobs may omit these fields. `scanned_count` counts unique candidates considered, including early rejections, not network requests. Full-mode crawls prefilter known duration/view-count mismatches; missing information, active livestreams and rounded view-count boundary candidates continue to detailed extraction. Every surviving video is checked again using full metadata. The source limit still applies before filtering.
+
 `GET /jobs?page=1&page_size=20` -> Page<Job>.
 `GET /jobs/{id}` -> Job.
 `POST /jobs/{id}/cancel` -> Job.

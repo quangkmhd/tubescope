@@ -16,6 +16,7 @@ export type Job = {
   id: string; status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'interrupted';
   kind: 'crawl' | 'refresh' | 'save'; source_type: string; sources: string[]; mode: string; limit: number;
   phase: string; scanned_count: number; matched_count: number; failed_count: number;
+  prefiltered_count?: number; detailed_count?: number;
   skipped_count: number; total_count: number | null; created_at: string; started_at: string | null;
   finished_at: string | null; error: string | null; errors: { source: string; message: string }[];
 };

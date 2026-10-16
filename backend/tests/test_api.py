@@ -445,6 +445,203 @@ def test_one_video_timeout_keeps_other_video_results(setup):
     assert done["errors"][0]["message"] == "video timeout"
 
 
+def test_full_crawl_prefilters_listing_but_enriches_unknown_and_checks_final_values(
+    setup,
+):
+    c, app, extractor = setup
+    calls = []
+    entries = [
+        raw(id="aaaaaaaaaaa", duration=60, view_count=2000000),
+        raw(id="bbbbbbbbbbb", duration=3600, view_count=25000),
+        raw(id="ccccccccccc", duration=None, view_count=None),
+        raw(id="ddddddddddd", duration=3600, view_count=999000),
+        raw(id="eeeeeeeeeee", duration=3600, view_count=2000000),
+    ]
+
+    def extract(url, **kwargs):
+        if kwargs.get("flat"):
+            return {"entries": entries}
+        vid = url.split("=")[-1]
+        calls.append(vid)
+        return raw(
+            id=vid,
+            duration=3600,
+            view_count=500000 if vid == "eeeeeeeeeee" else 1000001,
+        )
+
+    extractor.extract = extract
+    j = crawl(
+        c,
+        source_type="channel",
+        sources=["https://www.youtube.com/@test"],
+        filters={"duration_min": 1201, "views_min": 1000000},
+    ).json()
+    done = finished(c, j["id"])
+    assert calls == ["ccccccccccc", "ddddddddddd", "eeeeeeeeeee"]
+    assert done["status"] == "completed"
+    assert done["scanned_count"] == 5
+    assert done["prefiltered_count"] == 2
+    assert done["detailed_count"] == 3
+    assert done["matched_count"] == 2
+    assert done["failed_count"] == 0
+    rows = c.get("/api/videos", params={"scope": "job", "job_id": j["id"]}).json()
+    assert {v["id"] for v in rows["items"]} == {"ccccccccccc", "ddddddddddd"}
+    assert all(v["metadata_level"] == "full" for v in rows["items"])
+
+
+def test_prefilter_preserves_existing_review_and_observed_playlist(setup):
+    c, app, extractor = setup
+    first = crawl(c).json()
+    finished(c, first["id"])
+    c.post("/api/library/save", json={"video_ids": ["abcdefghijk"]})
+    c.patch(
+        "/api/videos/abcdefghijk/review",
+        json={"notes": "Keep this", "review_status": "keep"},
+    )
+    calls = []
+
+    def extract(url, **kwargs):
+        calls.append(url)
+        return {"title": "Observed playlist", "entries": [raw(duration=60)]}
+
+    extractor.extract = extract
+    j = crawl(
+        c,
+        source_type="playlist",
+        sources=["https://www.youtube.com/playlist?list=PLnew"],
+        existing_policy="update",
+        filters={"duration_min": 1201},
+    ).json()
+    done = finished(c, j["id"])
+    assert calls == ["https://www.youtube.com/playlist?list=PLnew"]
+    assert done["prefiltered_count"] == 1
+    assert done["matched_count"] == 0
+    assert c.get("/api/videos/abcdefghijk").json()["notes"] == "Keep this"
+    assert c.get("/api/library/groups?kind=playlists").json()["total"] == 1
+
+
+@pytest.mark.parametrize("later_views", [1100000, None])
+@pytest.mark.parametrize("fails_once", [False, True])
+def test_prefiltered_duplicate_is_reconsidered_with_all_playlist_and_shorts_evidence(
+    setup, later_views, fails_once
+):
+    c, app, extractor = setup
+    detailed = []
+
+    def extract(url, **kwargs):
+        if kwargs.get("flat"):
+            first = "PLfirst" in url
+            return {
+                "title": "First" if first else "Second",
+                "entries": [
+                    raw(
+                        view_count=980000 if first else later_views,
+                        webpage_url="https://www.youtube.com/shorts/abcdefghijk"
+                        if first
+                        else "https://www.youtube.com/watch?v=abcdefghijk",
+                    )
+                ],
+            }
+        detailed.append(url)
+        if fails_once and len(detailed) == 1:
+            raise RuntimeError("Transient extraction failure")
+        return raw(view_count=1100000)
+
+    extractor.extract = extract
+    j = crawl(
+        c,
+        source_type="playlist",
+        sources=[
+            "https://www.youtube.com/playlist?list=PLfirst",
+            "https://www.youtube.com/playlist?list=PLsecond",
+        ],
+        filters={"views_min": 1000000},
+    ).json()
+    done = finished(c, j["id"])
+    if fails_once:
+        assert done["status"] == "failed"
+        done = finished(c, c.post(f"/api/jobs/{j['id']}/retry").json()["id"])
+    assert done["matched_count"] == 1
+    assert done["scanned_count"] == 1
+    assert done["prefiltered_count"] == 0
+    assert done["detailed_count"] == 1
+    assert detailed == ["https://www.youtube.com/shorts/abcdefghijk"] * (
+        2 if fails_once else 1
+    )
+    assert (
+        c.post("/api/library/save", json={"video_ids": ["abcdefghijk"]}).json()[
+            "saved_count"
+        ]
+        == 1
+    )
+    assert c.get("/api/videos/abcdefghijk").json()["content_type"] == "shorts"
+    assert {
+        g["key"] for g in c.get("/api/library/groups?kind=playlists").json()["items"]
+    } == {"PLfirst", "PLsecond"}
+
+
+@pytest.mark.parametrize("source_type", ["playlist", "channel"])
+@pytest.mark.parametrize("seed_full", [False, True])
+def test_later_rejected_shorts_evidence_is_preserved_before_enrichment(
+    setup, source_type, seed_full
+):
+    c, app, extractor = setup
+    if seed_full:
+        first = crawl(c).json()
+        finished(c, first["id"])
+        c.post("/api/library/save", json={"video_ids": ["abcdefghijk"]})
+        c.patch("/api/videos/abcdefghijk/review", json={"notes": "Preserved review"})
+    observations = 0
+    details = []
+
+    def extract(url, **kwargs):
+        nonlocal observations
+        if kwargs.get("flat"):
+            observations += 1
+            if observations == 3 and seed_full:
+                cached = c.get("/api/videos/abcdefghijk").json()
+                assert cached["metadata_level"] == "full"
+                assert cached["description"] == "Full description"
+                assert cached["notes"] == "Preserved review"
+            return {
+                "entries": [
+                    raw(
+                        view_count=None if observations == 3 else 980000,
+                        webpage_url="https://www.youtube.com/shorts/abcdefghijk"
+                        if observations == 2
+                        else "https://www.youtube.com/watch?v=abcdefghijk",
+                    )
+                ],
+                "title": "Observed",
+            }
+        details.append(url)
+        return raw(view_count=1100000)
+
+    extractor.extract = extract
+    sources = (
+        [f"https://www.youtube.com/playlist?list=PL{i}" for i in range(3)]
+        if source_type == "playlist"
+        else [f"https://www.youtube.com/@source{i}/videos" for i in range(3)]
+    )
+    j = crawl(
+        c,
+        source_type=source_type,
+        sources=sources,
+        existing_policy="update",
+        filters={"views_min": 1000000, "content_types": ["shorts"]},
+    ).json()
+    done = finished(c, j["id"])
+    assert done["status"] == "completed"
+    assert done["matched_count"] == 1
+    assert done["scanned_count"] == 1
+    assert done["prefiltered_count"] == 0
+    assert details == ["https://www.youtube.com/shorts/abcdefghijk"]
+    c.post("/api/library/save", json={"video_ids": ["abcdefghijk"]})
+    assert c.get("/api/videos/abcdefghijk").json()["content_type"] == "shorts"
+    if source_type == "playlist":
+        assert c.get("/api/library/groups?kind=playlists").json()["total"] == 3
+
+
 def test_bare_channel_interleaves_tabs_preserves_shorts_and_global_cap(setup):
     c, app, extractor = setup
 

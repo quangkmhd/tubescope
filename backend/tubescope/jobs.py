@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlsplit
 from .core import (
     VIDEO_ID,
     JobRequest,
+    listing_rejects,
     matches,
     native_search_url,
     normalize,
@@ -110,6 +111,8 @@ class Worker:
             "limit": req.limit,
             "phase": "queued",
             "scanned_count": 0,
+            "prefiltered_count": 0,
+            "detailed_count": 0,
             "matched_count": 0,
             "failed_count": 0,
             "skipped_count": 0,
@@ -222,12 +225,19 @@ class Worker:
         kind = req["_kind"]
         filters = req["filters"]
         seen = set()
+        considered = set()
+        prefiltered = set()
         failed_candidates = {}
         total = 0
 
         def extract(url, **options):
             self._check(cancel, deadline)
             return self.extractor.extract(url, cancel=cancel, **options)
+
+        def clear_prefilter(vid):
+            if vid in prefiltered:
+                prefiltered.remove(vid)
+                self.db.increment(id, prefiltered_count=-1)
 
         def ingest(entry, source, playlist=None, shorts=False):
             video_id = str(entry.get("id") or "")
@@ -269,12 +279,14 @@ class Worker:
                         playlist=playlist,
                     )
                 return
-            seen.add(vid)
-            self.db.increment(id, scanned_count=1)
+            if vid not in considered:
+                considered.add(vid)
+                self.db.increment(id, scanned_count=1)
             self.db.update_job(id, phase=f"extracting {vid}")
             existing = bool(old and old["saved"])
             skip = existing and req["existing_policy"] == "skip" and kind == "crawl"
             if skip:
+                clear_prefilter(vid)
                 v = old
                 if playlist:
                     self.db.upsert(
@@ -295,10 +307,56 @@ class Worker:
                 self.db.increment(id, skipped_count=1)
             else:
                 if mode == "full":
-                    short_evidence = shorts or any(
-                        "youtube.com/shorts/" in str(entry.get(k) or "")
-                        for k in ("url", "webpage_url")
+                    short_evidence = (
+                        shorts
+                        or bool(
+                            old
+                            and (
+                                old["content_type"] == "shorts"
+                                or "/shorts/" in old["url"]
+                            )
+                        )
+                        or any(
+                            "youtube.com/shorts/" in str(entry.get(k) or "")
+                            for k in ("url", "webpage_url")
+                        )
                     )
+                    if kind == "crawl" and listing_rejects(entry, filters):
+                        # Preserve known playlist relationships and reviews without
+                        # fetching metadata for a candidate rejected by the listing.
+                        if old is None:
+                            # Keep observed memberships/Shorts evidence even if a
+                            # later source or retry is the one that enriches it.
+                            self.db.upsert(
+                                normalize(
+                                    entry, mode="quick", source=source, shorts=shorts
+                                ),
+                                playlist=playlist,
+                            )
+                        elif playlist or short_evidence:
+                            cached = {
+                                k: value
+                                for k, value in old.items()
+                                if k
+                                not in {
+                                    "saved",
+                                    "saved_at",
+                                    "review_status",
+                                    "notes",
+                                    "personal_tags",
+                                }
+                            }
+                            if short_evidence:
+                                cached["url"] = f"https://www.youtube.com/shorts/{vid}"
+                                if cached["content_type"] != "livestream":
+                                    cached["content_type"] = "shorts"
+                            self.db.upsert(cached, playlist=playlist)
+                        if vid not in prefiltered:
+                            prefiltered.add(vid)
+                            self.db.increment(id, prefiltered_count=1)
+                        self.db.update_job(id, phase="filtering")
+                        return
+                    clear_prefilter(vid)
                     # Construct canonical URLs instead of following arbitrary extractor-provided destinations.
                     raw = extract(
                         f"https://www.youtube.com/{'shorts/' if short_evidence else 'watch?v='}{vid}"
@@ -310,6 +368,9 @@ class Worker:
                     v = normalize(entry, mode="quick", source=source, shorts=shorts)
                 self._check(cancel, deadline)
                 self.db.upsert(v, playlist=playlist)
+                if mode == "full":
+                    self.db.increment(id, detailed_count=1)
+            seen.add(vid)
             if kind == "save":
                 self.db.save([vid])
             if matches(v, filters) and not (

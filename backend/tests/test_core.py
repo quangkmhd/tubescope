@@ -2,7 +2,14 @@ import json
 
 import pytest
 
-from tubescope.core import JobRequest, matches, native_search_url, normalize, source_url
+from tubescope.core import (
+    JobRequest,
+    listing_rejects,
+    matches,
+    native_search_url,
+    normalize,
+    source_url,
+)
 from tubescope.database import Database
 
 
@@ -19,6 +26,46 @@ def raw(id="abcdefghijk", **kw):
         "categories": ["Education"],
         **kw,
     }
+
+
+@pytest.mark.parametrize(
+    "entry,filters,rejected",
+    [
+        ({}, {"duration_min": 1201, "views_min": 1000000}, False),
+        ({"duration": 60}, {"duration_min": 1201}, True),
+        ({"duration": 1201}, {"duration_min": 1201}, False),
+        ({"duration": 1202}, {"duration_max": 1200}, True),
+        ({"duration": 1200}, {"duration_min": 1200.5}, False),
+        ({"duration": 1201}, {"duration_max": 1200}, False),
+        ({"duration": 0}, {"duration_max": 0}, False),
+        ({"duration": True}, {"duration_min": 1201}, False),
+        ({"duration": -1}, {"duration_min": 1201}, False),
+        ({"duration": "60"}, {"duration_min": 1201}, False),
+        ({"duration": float("nan")}, {"duration_min": 1201}, False),
+        ({"view_count": float("inf")}, {"views_max": 1000000}, False),
+        ({"view_count": 0}, {"views_min": 1}, True),
+        ({"view_count": 999000}, {"views_min": 1000000}, False),
+        ({"view_count": 980000}, {"views_min": 1000000}, True),
+        ({"view_count": 1010000}, {"views_max": 1000000}, False),
+        ({"view_count": 1200000}, {"views_max": 1000000}, True),
+        (
+            {"duration": 60, "view_count": 0, "is_live": True},
+            {"duration_min": 1201, "views_min": 1000000},
+            False,
+        ),
+        ({"duration": 60, "live_status": "is_upcoming"}, {"duration_min": 1201}, False),
+        ({"duration": 60, "live_status": "post_live"}, {"duration_min": 1201}, False),
+        (
+            {"duration": 60},
+            {"category": "27", "date_after": "2026-01-01", "content_types": ["shorts"]},
+            False,
+        ),
+    ],
+)
+def test_listing_prefilter_only_rejects_known_values_away_from_rounding_boundary(
+    entry, filters, rejected
+):
+    assert listing_rejects(entry, filters) is rejected
 
 
 def test_normalization_excludes_forbidden_and_preserves_null_false():

@@ -34,6 +34,8 @@ Lần đầu chương trình cài dependency đã khóa phiên bản. Mở [Tube
 5. Duyệt kho theo **Kênh / Playlist / Category / Tất cả video**. Review từng video, ghi chú và thêm thẻ riêng.
 6. Cập nhật metadata không làm mất review. Xuất CSV theo phạm vi/bộ lọc hoặc các video đang chọn.
 
+Chế độ đầy đủ tự lọc sơ bộ bằng thời lượng/lượt xem có sẵn trong danh sách YouTube trước khi lấy metadata từng video. Thiếu trường, video trực tiếp đang thay đổi hoặc giá trị sát ngưỡng làm tròn thì vẫn kiểm tra chi tiết. Category và các điều kiện còn lại được kiểm tra trên metadata đầy đủ. Tiến trình tách số “đã xét”, “loại sơ bộ” và “đã lấy chi tiết”; giới hạn 100 ứng viên mỗi nguồn không đảm bảo 100 video phù hợp. Video bị loại sơ bộ có thể được lưu metadata một phần trong bộ nhớ đệm SQLite để giữ quan hệ playlist, chưa được đưa vào kho đã lưu. Nếu một nguồn khác có dữ liệu khả quan hoặc còn thiếu cho cùng video, hệ thống sẽ xét lại.
+
 ## Dữ liệu lưu
 
 17 nhóm: ID/link video; tiêu đề; tên/ID/link/handle kênh; link thumbnail; thời lượng; lượt xem; ngày đăng; loại nội dung/trạng thái live; Category YouTube; mô tả; tags gốc; lượt thích; số người đăng ký; dấu xác minh; giấy phép; chương; danh sách ngôn ngữ phụ đề.
