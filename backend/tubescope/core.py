@@ -76,7 +76,7 @@ def keyword_input(value: str) -> bool:
 def source_url(kind: str, value: str) -> str:
     value = value.strip()
     if any(ord(ch) < 32 or ord(ch) == 127 for ch in value):
-        raise ValueError("Nguồn chứa ký tự điều khiển không hợp lệ.")
+        raise ValueError("The source contains invalid control characters.")
     if kind == "keyword":
         if (
             not value
@@ -85,7 +85,7 @@ def source_url(kind: str, value: str) -> str:
             or not keyword_input(value)
         ):
             raise ValueError(
-                "Từ khóa không hợp lệ; dùng đúng loại nguồn cho URL YouTube."
+                "Invalid keyword; select the matching source type for a YouTube URL."
             )
         return value
     try:
@@ -99,7 +99,7 @@ def source_url(kind: str, value: str) -> str:
             or u.fragment
         ):
             raise ValueError(
-                "Chỉ chấp nhận URL YouTube không có tài khoản, cổng hoặc fragment."
+                "Only YouTube URLs without credentials, ports, or fragments are allowed."
             )
         p = u.path.rstrip("/")
         q = parse_qs(u.query)
@@ -165,9 +165,9 @@ def source_url(kind: str, value: str) -> str:
             "channel": is_channel,
             "search": is_search,
         }.get(kind):
-            raise ValueError("URL không khớp loại nguồn đã chọn.")
+            raise ValueError("The URL does not match the selected source type.")
     except (ValueError, IndexError) as exc:
-        raise ValueError(str(exc) or "URL YouTube không hợp lệ.") from exc
+        raise ValueError(str(exc) or "Invalid YouTube URL.") from exc
     return value
 
 
@@ -208,9 +208,11 @@ class Filters(StrictModel):
             (self.playlist_start, self.playlist_end),
         ]:
             if low is not None and high is not None and low > high:
-                raise ValueError("Giới hạn từ phải nhỏ hơn hoặc bằng giới hạn đến.")
+                raise ValueError(
+                    "The minimum must be less than or equal to the maximum."
+                )
         if self.category not in {None, "", "all", "unknown", *CATEGORY_NAMES}:
-            raise ValueError("Category không có trong danh mục lưu sẵn.")
+            raise ValueError("The category is not in the built-in catalog.")
         return self
 
 
@@ -331,7 +333,7 @@ def _strings(items):
 def normalize(raw: dict, mode="full", source=None, shorts=False):
     vid = str(raw.get("id") or "")
     if not VIDEO_ID.fullmatch(vid):
-        raise ValueError("Nguồn không trả về một video YouTube hợp lệ.")
+        raise ValueError("The source did not return a valid YouTube video.")
     live = raw.get("live_status")
     if live is None:
         if raw.get("is_live"):

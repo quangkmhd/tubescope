@@ -18,15 +18,15 @@ export function elapsedLabel(value: number | null): string {
   if (value == null || !Number.isFinite(value)) return '—';
   const seconds = Math.max(0, Math.floor(value));
   const minutes = Math.floor(seconds / 60);
-  if (seconds >= 3600) return `${Math.floor(seconds / 3600)} giờ ${String(minutes % 60).padStart(2,'0')} phút ${String(seconds % 60).padStart(2,'0')} giây`;
-  if (minutes) return `${minutes} phút ${String(seconds % 60).padStart(2,'0')} giây`;
-  return `${seconds} giây`;
+  if (seconds >= 3600) return `${Math.floor(seconds / 3600)}h ${String(minutes % 60).padStart(2,'0')}m ${String(seconds % 60).padStart(2,'0')}s`;
+  if (minutes) return `${minutes}m ${String(seconds % 60).padStart(2,'0')}s`;
+  return `${seconds}s`;
 }
 export function jobReason(job: { status: string; error: string | null; errors: {message: string; source?: string}[] }): string | null {
   if (job.error) return job.error;
   if (job.errors.length) return job.errors[0].message;
-  if (job.status === 'interrupted') return 'Lượt thu thập bị gián đoạn. Phiên bản cũ không ghi lại lý do cụ thể; các kết quả đã lấy vẫn được giữ lại.';
-  if (job.status === 'cancelled') return 'Đã hủy lượt thu thập. Các kết quả đã lấy vẫn được giữ lại.';
-  if (job.status === 'failed' || job.status === 'partial') return 'Không có lý do lỗi được ghi lại cho lượt thu thập này.';
+  if (job.status === 'interrupted') return 'Collection was interrupted. This older collection has no recorded reason. Collected results have been kept.';
+  if (job.status === 'cancelled') return 'Collection was cancelled. Collected results have been kept.';
+  if (job.status === 'failed' || job.status === 'partial') return 'No error details were recorded for this collection.';
   return null;
 }

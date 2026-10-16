@@ -93,6 +93,15 @@ def test_api_crawl_save_review_refresh_export_and_restart(setup):
     assert c.get("/api/health").status_code == 200
     catalog = c.get("/api/catalog").json()
     assert len(catalog["categories"]) == 32 and len(catalog["metadata_groups"]) == 17
+    assert all(
+        category["label"] == category["title"] for category in catalog["categories"]
+    )
+    features = {
+        feature["id"]: feature["label"] for feature in catalog["native_features"]
+    }
+    assert features["live"] == "Live"
+    assert features["cc"] == "Subtitles/CC"
+    assert features["location"] == "Location"
     job = crawl(c).json()
     assert finished(c, job["id"])["status"] == "completed"
     rows = c.get("/api/videos", params={"scope": "job", "job_id": job["id"]}).json()
@@ -230,7 +239,7 @@ def test_real_subprocess_cancel_and_timeout(tmp_path):
     import sys
 
     extractor = Extractor(command=[sys.executable, str(script)], timeout=0.1)
-    with pytest.raises(TimeoutError):
+    with pytest.raises(TimeoutError, match="yt-dlp timed out after 0.1 seconds"):
         extractor.extract("https://youtu.be/abcdefghijk", cancel=threading.Event())
     cancel = threading.Event()
     cancel.set()
@@ -1130,9 +1139,12 @@ def test_cancel_and_recovery_persist_reason(setup):
     job = app.state.worker.submit(request, wake=False)
     cancelled = c.post(f"/api/jobs/{job['id']}/cancel").json()
     assert cancelled["termination_reason"] == "user_cancelled"
+    assert cancelled["error"] == "The collection was cancelled by the user."
     job = app.state.worker.submit(request, wake=False)
     app.state.db.recover()
-    assert app.state.db.job(job["id"])["termination_reason"] == "service_restart"
+    recovered = app.state.db.job(job["id"])
+    assert recovered["termination_reason"] == "service_restart"
+    assert recovered["error"] == "The server stopped; retry the collection."
 
 
 @pytest.mark.parametrize("mode", ["quick", "full"])
@@ -1205,6 +1217,9 @@ def test_saved_date_offset_overflow_is_validation_error(setup):
             path, params={"saved_from": "0001-01-01", "time_zone": "Asia/Bangkok"}
         )
         assert response.status_code == 422
+        assert (
+            response.json()["detail"] == "The date range exceeds the supported range."
+        )
 
 
 @pytest.mark.parametrize("key", ["views_min", "views_max", "likes_min", "likes_max"])
@@ -1537,3 +1552,54 @@ def test_generic_native_resource_search_exposes_target_for_resource_only_ui(
     job = finished(c, response.json()["id"])
     assert job["status"] == "completed", job
     assert job["search_target"] == target
+
+
+@pytest.mark.parametrize(
+    "legacy,english",
+    [
+        ("Người dùng đã hủy tác vụ.", "The collection was cancelled by the user."),
+        (
+            "Máy chủ đã dừng; hãy thử lại tác vụ.",
+            "The server stopped; retry the collection.",
+        ),
+        ("yt-dlp vượt thời gian chờ 90 giây.", "yt-dlp timed out after 90 seconds."),
+        ("yt-dlp vượt thời gian chờ 0.1 giây.", "yt-dlp timed out after 0.1 seconds."),
+        ("yt-dlp thoát với mã -9.", "yt-dlp exited with code -9."),
+        (
+            "ERROR: yt-dlp vượt thời gian chờ 90 giây.",
+            "ERROR: yt-dlp vượt thời gian chờ 90 giây.",
+        ),
+        (
+            "yt-dlp thoát với mã -9. Raw extractor details",
+            "yt-dlp thoát với mã -9. Raw extractor details",
+        ),
+    ],
+)
+def test_legacy_collection_messages_are_translated_without_rewriting_history(
+    setup, legacy, english
+):
+    c, app, _ = setup
+    request = {"source_type": "video", "sources": ["https://youtu.be/abcdefghijk"]}
+    raw_error = "YouTube: Video không khả dụng"
+    with app.state.db.lock:
+        job = app.state.worker.submit(request, wake=False)
+        app.state.db.update_job(
+            job["id"],
+            status="failed",
+            error=legacy,
+            errors=[
+                {"source": request["sources"][0], "message": legacy},
+                {"source": request["sources"][0], "message": raw_error},
+            ],
+        )
+    for response in [
+        c.get(f"/api/jobs/{job['id']}").json(),
+        c.get("/api/jobs").json()["items"][0],
+        c.post(f"/api/jobs/{job['id']}/cancel").json(),
+    ]:
+        assert response["error"] == english
+        assert response["errors"][0]["message"] == english
+        assert response["errors"][1]["message"] == raw_error
+    stored = app.state.db.job(job["id"])
+    assert stored["error"] == legacy
+    assert stored["errors"][0]["message"] == legacy

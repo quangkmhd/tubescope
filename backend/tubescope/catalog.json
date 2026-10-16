@@ -2,193 +2,193 @@
   {
     "id": "1",
     "title": "Film & Animation",
-    "label": "Phim & hoạt hình",
+    "label": "Film & Animation",
     "legacy": false
   },
   {
     "id": "2",
     "title": "Autos & Vehicles",
-    "label": "Ô tô & phương tiện",
+    "label": "Autos & Vehicles",
     "legacy": false
   },
   {
     "id": "10",
     "title": "Music",
-    "label": "Âm nhạc",
+    "label": "Music",
     "legacy": false
   },
   {
     "id": "15",
     "title": "Pets & Animals",
-    "label": "Thú cưng & động vật",
+    "label": "Pets & Animals",
     "legacy": false
   },
   {
     "id": "17",
     "title": "Sports",
-    "label": "Thể thao",
+    "label": "Sports",
     "legacy": false
   },
   {
     "id": "18",
     "title": "Short Movies",
-    "label": "Phim ngắn",
+    "label": "Short Movies",
     "legacy": true
   },
   {
     "id": "19",
     "title": "Travel & Events",
-    "label": "Du lịch & sự kiện",
+    "label": "Travel & Events",
     "legacy": false
   },
   {
     "id": "20",
     "title": "Gaming",
-    "label": "Trò chơi",
+    "label": "Gaming",
     "legacy": false
   },
   {
     "id": "21",
     "title": "Videoblogging",
-    "label": "Video blog",
+    "label": "Videoblogging",
     "legacy": true
   },
   {
     "id": "22",
     "title": "People & Blogs",
-    "label": "Con người & blog",
+    "label": "People & Blogs",
     "legacy": false
   },
   {
     "id": "23",
     "title": "Comedy",
-    "label": "Hài",
+    "label": "Comedy",
     "legacy": false
   },
   {
     "id": "24",
     "title": "Entertainment",
-    "label": "Giải trí",
+    "label": "Entertainment",
     "legacy": false
   },
   {
     "id": "25",
     "title": "News & Politics",
-    "label": "Tin tức & chính trị",
+    "label": "News & Politics",
     "legacy": false
   },
   {
     "id": "26",
     "title": "Howto & Style",
-    "label": "Hướng dẫn & phong cách",
+    "label": "Howto & Style",
     "legacy": false
   },
   {
     "id": "27",
     "title": "Education",
-    "label": "Giáo dục",
+    "label": "Education",
     "legacy": false
   },
   {
     "id": "28",
     "title": "Science & Technology",
-    "label": "Khoa học & công nghệ",
+    "label": "Science & Technology",
     "legacy": false
   },
   {
     "id": "29",
     "title": "Nonprofits & Activism",
-    "label": "Phi lợi nhuận & hoạt động xã hội",
+    "label": "Nonprofits & Activism",
     "legacy": false
   },
   {
     "id": "30",
     "title": "Movies",
-    "label": "Phim",
+    "label": "Movies",
     "legacy": true
   },
   {
     "id": "31",
     "title": "Anime/Animation",
-    "label": "Anime / hoạt hình",
+    "label": "Anime/Animation",
     "legacy": true
   },
   {
     "id": "32",
     "title": "Action/Adventure",
-    "label": "Hành động / phiêu lưu",
+    "label": "Action/Adventure",
     "legacy": true
   },
   {
     "id": "33",
     "title": "Classics",
-    "label": "Phim kinh điển",
+    "label": "Classics",
     "legacy": true
   },
   {
     "id": "34",
     "title": "Comedy",
-    "label": "Phim hài",
+    "label": "Comedy",
     "legacy": true
   },
   {
     "id": "35",
     "title": "Documentary",
-    "label": "Phim tài liệu",
+    "label": "Documentary",
     "legacy": true
   },
   {
     "id": "36",
     "title": "Drama",
-    "label": "Chính kịch",
+    "label": "Drama",
     "legacy": true
   },
   {
     "id": "37",
     "title": "Family",
-    "label": "Gia đình",
+    "label": "Family",
     "legacy": true
   },
   {
     "id": "38",
     "title": "Foreign",
-    "label": "Phim nước ngoài",
+    "label": "Foreign",
     "legacy": true
   },
   {
     "id": "39",
     "title": "Horror",
-    "label": "Kinh dị",
+    "label": "Horror",
     "legacy": true
   },
   {
     "id": "40",
     "title": "Sci-Fi/Fantasy",
-    "label": "Khoa học viễn tưởng / kỳ ảo",
+    "label": "Sci-Fi/Fantasy",
     "legacy": true
   },
   {
     "id": "41",
     "title": "Thriller",
-    "label": "Giật gân",
+    "label": "Thriller",
     "legacy": true
   },
   {
     "id": "42",
     "title": "Shorts",
-    "label": "Danh mục Shorts cũ",
+    "label": "Shorts",
     "legacy": true
   },
   {
     "id": "43",
     "title": "Shows",
-    "label": "Chương trình",
+    "label": "Shows",
     "legacy": true
   },
   {
     "id": "44",
     "title": "Trailers",
-    "label": "Trailer",
+    "label": "Trailers",
     "legacy": true
   }
 ]

@@ -6,6 +6,7 @@ import csv
 import io
 import json
 import os
+import re
 from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
@@ -36,7 +37,7 @@ class VideoIds(StrictModel):
     @model_validator(mode="after")
     def unique(self):
         if any(len(s) != 11 for s in self.video_ids):
-            raise ValueError("ID video phải dài 11 ký tự.")
+            raise ValueError("Video IDs must be 11 characters long.")
         self.video_ids = list(dict.fromkeys(self.video_ids))
         return self
 
@@ -49,7 +50,7 @@ class Review(StrictModel):
     @model_validator(mode="after")
     def bounded_tags(self):
         if self.personal_tags and any(len(t) > 200 for t in self.personal_tags):
-            raise ValueError("Mỗi nhãn tối đa 200 ký tự.")
+            raise ValueError("Each tag must be at most 200 characters long.")
         return self
 
 
@@ -88,6 +89,55 @@ EXPORT_FIELDS = [
     "personal_tags",
     "source",
 ]
+
+
+LEGACY_JOB_MESSAGES = {
+    "Người dùng đã hủy tác vụ.": "The collection was cancelled by the user.",
+    "Máy chủ đã dừng; hãy thử lại tác vụ.": "The server stopped; retry the collection.",
+    "Tác vụ vượt thời gian xử lý tối đa 30 phút.": "The collection exceeded the 30-minute processing limit.",
+    "Nguồn có quá nhiều danh sách lồng nhau.": "The source contains too many nested playlists.",
+    "Nguồn không trả về một video YouTube hợp lệ.": "The source did not return a valid YouTube video.",
+    "Mục nguồn không chứa ID video YouTube hợp lệ.": "The source item does not contain a valid YouTube video ID.",
+    "Nguồn không trả về danh sách kết quả.": "The source did not return a list of results.",
+    "Một mục nguồn không khả dụng.": "A source item is unavailable.",
+    "Dữ liệu phản hồi yt-dlp vượt giới hạn an toàn.": "The yt-dlp response exceeds the safety limit.",
+    "yt-dlp không trả về metadata hợp lệ.": "yt-dlp did not return valid metadata.",
+    "URL không khớp loại nguồn đã chọn.": "The URL does not match the selected source type.",
+    "Chỉ chấp nhận URL YouTube không có tài khoản, cổng hoặc fragment.": "Only YouTube URLs without credentials, ports, or fragments are allowed.",
+}
+
+
+def public_job_message(message):
+    if not message:
+        return message
+    if message in LEGACY_JOB_MESSAGES:
+        return LEGACY_JOB_MESSAGES[message]
+    timeout = re.fullmatch(
+        r"yt-dlp vượt thời gian chờ (-?\d+(?:\.\d+)?(?:e[+-]?\d+)?) giây\.",
+        message,
+    )
+    if timeout:
+        return f"yt-dlp timed out after {timeout[1]} seconds."
+    exit_code = re.fullmatch(r"yt-dlp thoát với mã (-?\d+)\.", message)
+    if exit_code:
+        return f"yt-dlp exited with code {exit_code[1]}."
+    return message
+
+
+def public_job(job):
+    # Translate known application copy at the API boundary without changing stored
+    # history, user input, or arbitrary errors returned by the extractor.
+    return {
+        **job,
+        "error": public_job_message(job.get("error")),
+        "errors": [
+            {
+                **error,
+                "message": public_job_message(error["message"]),
+            }
+            for error in job.get("errors", [])
+        ],
+    }
 
 
 def safe_cell(value):
@@ -158,14 +208,14 @@ def create_app(db_path=None, extractor=None):
     async def missing(request, exc):
         return JSONResponse(
             status_code=404,
-            content={"detail": "Không tìm thấy dữ liệu: " + str(exc.args[0])},
+            content={"detail": "Data not found: " + str(exc.args[0])},
         )
 
     def get_job(id):
         job = db.job(id)
         if not job:
             raise KeyError(id)
-        return job
+        return public_job(job)
 
     def selected(ids, saved_only=False):
         rows = []
@@ -174,7 +224,7 @@ def create_app(db_path=None, extractor=None):
             if not v:
                 raise KeyError(id)
             if saved_only and not v["saved"]:
-                raise HTTPException(409, "Video chưa được lưu: " + id)
+                raise HTTPException(409, "Video has not been saved: " + id)
             rows.append(v)
         return rows
 
@@ -189,16 +239,16 @@ def create_app(db_path=None, extractor=None):
     @app.get("/api/catalog")
     def catalog():
         labels = {
-            "live": "Đang trực tiếp",
+            "live": "Live",
             "4k": "4K",
             "hd": "HD",
-            "cc": "Phụ đề",
+            "cc": "Subtitles/CC",
             "creative": "Creative Commons",
             "360": "360°",
             "vr180": "VR180",
             "3d": "3D",
             "hdr": "HDR",
-            "location": "Vị trí",
+            "location": "Location",
         }
         return {
             "categories": CATEGORIES,
@@ -221,9 +271,9 @@ def create_app(db_path=None, extractor=None):
         try:
             zone = ZoneInfo(time_zone)
         except (ZoneInfoNotFoundError, ValueError):
-            raise HTTPException(422, "Múi giờ không hợp lệ.")
+            raise HTTPException(422, "Invalid time zone.")
         if date_from and date_to and date_from > date_to:
-            raise HTTPException(422, "Ngày bắt đầu không được sau ngày kết thúc.")
+            raise HTTPException(422, "The start date must not be after the end date.")
 
         def boundary(day):
             return (
@@ -240,8 +290,10 @@ def create_app(db_path=None, extractor=None):
                 else None
             )
         except OverflowError:
-            raise HTTPException(422, "Khoảng ngày vượt phạm vi hỗ trợ.")
-        return db.jobs(page, page_size, created_from=start, created_before=end)
+            raise HTTPException(422, "The date range exceeds the supported range.")
+        result = db.jobs(page, page_size, created_from=start, created_before=end)
+        result["items"] = [public_job(job) for job in result["items"]]
+        return result
 
     @app.get("/api/jobs/{id}")
     def job_get(id: str):
@@ -249,7 +301,7 @@ def create_app(db_path=None, extractor=None):
 
     @app.post("/api/jobs/{id}/cancel")
     def job_cancel(id: str):
-        return worker.cancel(id)
+        return public_job(worker.cancel(id))
 
     @app.post("/api/jobs/{id}/retry", status_code=202)
     def job_retry(id: str):
@@ -292,12 +344,12 @@ def create_app(db_path=None, extractor=None):
         filters = dict(locals())
         if scope == "job":
             if not job_id:
-                raise HTTPException(422, "scope=job cần job_id.")
+                raise HTTPException(422, "scope=job requires job_id.")
             get_job(job_id)
         if existing not in {"all", "new", "saved"}:
-            raise HTTPException(422, "Bộ lọc video đã lưu không hợp lệ.")
+            raise HTTPException(422, "Invalid saved-video filter.")
         if group_kind not in {None, "channels", "playlists", "categories"}:
-            raise HTTPException(422, "Nhóm không hợp lệ.")
+            raise HTTPException(422, "Invalid group.")
         db._where(**filters)
         return filters
 
@@ -390,7 +442,7 @@ def create_app(db_path=None, extractor=None):
         if video_ids is not None:
             ids = list(dict.fromkeys(s for s in video_ids.split(",") if s))
             if len(ids) > 1000:
-                raise HTTPException(422, "Tối đa 1000 ID video.")
+                raise HTTPException(422, "A maximum of 1,000 video IDs is allowed.")
             filters["video_ids"] = ids
         # Validate ahead of starting the streaming response, to preserve meaningful HTTP errors.
         db._where(**filters)

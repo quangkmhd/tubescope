@@ -24,16 +24,16 @@ test('ETA uses completed candidates, only after discovery and enough samples', (
 });
 
 test('long runtimes and missing values stay readable without NaN or negative times', () => {
-  assert.equal(elapsedLabel(3661), '1 giờ 01 phút 01 giây');
-  assert.equal(elapsedLabel(61), '1 phút 01 giây');
-  assert.equal(elapsedLabel(0), '0 giây');
+  assert.equal(elapsedLabel(3661), '1h 01m 01s');
+  assert.equal(elapsedLabel(61), '1m 01s');
+  assert.equal(elapsedLabel(0), '0s');
   assert.equal(elapsedLabel(null), '—');
 });
 
 test('error explanations preserve exact source reasons and never invent legacy interruption causes', () => {
   assert.equal(jobReason({ status:'failed', error:null, errors:[{source:'x',message:'Video unavailable'}] }), 'Video unavailable');
   assert.equal(jobReason({ status:'failed', error:'HTTP 429', errors:[] }), 'HTTP 429');
-  assert.match(jobReason({ status:'interrupted', error:null, errors:[] })!, /không ghi lại lý do/);
-  assert.match(jobReason({ status:'cancelled', error:null, errors:[] })!, /Đã hủy/);
+  assert.match(jobReason({ status:'interrupted', error:null, errors:[] })!, /no recorded reason/);
+  assert.match(jobReason({ status:'cancelled', error:null, errors:[] })!, /cancelled/);
   assert.equal(jobReason({ status:'completed', error:null, errors:[] }), null);
 });

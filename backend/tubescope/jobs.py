@@ -31,7 +31,7 @@ class JobDeadlineExceeded(TimeoutError):
 def listing_entries(entries, *, shorts=False, depth=0, content_types=None):
     """Interleave channel tabs, carrying canonical Shorts evidence to enrichment."""
     if depth > 5:
-        raise ValueError("Nguồn có quá nhiều danh sách lồng nhau.")
+        raise ValueError("The source contains too many nested playlists.")
     branches = []
     for entry in entries:
         if isinstance(entry, dict) and isinstance(entry.get("entries"), list):
@@ -155,7 +155,7 @@ class Worker:
                 phase="cancelled",
                 finished_at=now(),
                 termination_reason="user_cancelled",
-                error="Người dùng đã hủy tác vụ.",
+                error="The collection was cancelled by the user.",
             )
 
     def retry(self, id):
@@ -163,7 +163,7 @@ class Worker:
         if not job:
             raise KeyError(id)
         if job["status"] not in {"failed", "partial", "cancelled", "interrupted"}:
-            raise ValueError("Tác vụ không có dữ liệu cần thử lại.")
+            raise ValueError("This collection has no items to retry.")
         req = self.db.job_request(id)
         kind = req.pop("_kind", "crawl")
         ids = req.pop("_video_ids", None)
@@ -212,9 +212,9 @@ class Worker:
                                 termination_reason="service_restart"
                                 if status == "interrupted"
                                 else "user_cancelled",
-                                error="Máy chủ đã dừng; hãy thử lại tác vụ."
+                                error="The server stopped; retry the collection."
                                 if status == "interrupted"
-                                else "Người dùng đã hủy tác vụ.",
+                                else "The collection was cancelled by the user.",
                             )
                 except Exception as exc:
                     with self.db.lock:
@@ -242,7 +242,9 @@ class Worker:
         if cancel.is_set():
             raise ExtractionCancelled()
         if time.monotonic() > deadline:
-            raise JobDeadlineExceeded("Tác vụ vượt thời gian xử lý tối đa 30 phút.")
+            raise JobDeadlineExceeded(
+                "The collection exceeded the 30-minute processing limit."
+            )
 
     @contextmanager
     def _publication(self, id, cancel, deadline):
@@ -308,7 +310,9 @@ class Worker:
             self._check(cancel, deadline)
             vid = str(entry.get("id") or "")
             if not VIDEO_ID.fullmatch(vid):
-                raise ValueError("Mục nguồn không chứa ID video YouTube hợp lệ.")
+                raise ValueError(
+                    "The source item does not contain a valid YouTube video ID."
+                )
             old = self.db.video(vid)
             if vid in seen:
                 # Each duplicate still completes one discovered occurrence.
@@ -487,7 +491,9 @@ class Worker:
                     )
                     entries = listing.get("entries")
                     if entries is None:
-                        raise RuntimeError("Nguồn không trả về danh sách kết quả.")
+                        raise RuntimeError(
+                            "The source did not return a list of results."
+                        )
                     from itertools import islice
 
                     entries = list(
@@ -518,7 +524,7 @@ class Worker:
                         if not isinstance(entry, dict):
                             failed(
                                 source,
-                                ValueError("Một mục nguồn không khả dụng."),
+                                ValueError("A source item is unavailable."),
                                 candidate=True,
                             )
                             continue

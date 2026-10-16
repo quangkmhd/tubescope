@@ -107,7 +107,7 @@ class Extractor:
                     raise ExtractionCancelled()
                 if time.monotonic() > deadline:
                     raise TimeoutError(
-                        f"yt-dlp vượt thời gian chờ {self.timeout:g} giây."
+                        f"yt-dlp timed out after {self.timeout:g} seconds."
                     )
                 for key, _ in selector.select(timeout=0.05):
                     chunk = os.read(key.fileobj.fileno(), 65536)
@@ -118,7 +118,7 @@ class Extractor:
                     target.extend(chunk)
                     if len(out) > 64 * 1024 * 1024 or len(err) > 4 * 1024 * 1024:
                         raise RuntimeError(
-                            "Dữ liệu phản hồi yt-dlp vượt giới hạn an toàn."
+                            "The yt-dlp response exceeds the safety limit."
                         )
             # A child may close its output before exiting; keep cancellation active
             # through that final wait instead of blocking in Popen.wait().
@@ -127,18 +127,18 @@ class Extractor:
                     raise ExtractionCancelled()
                 if time.monotonic() > deadline:
                     raise TimeoutError(
-                        f"yt-dlp vượt thời gian chờ {self.timeout:g} giây."
+                        f"yt-dlp timed out after {self.timeout:g} seconds."
                     )
             if cancel.is_set():
                 raise ExtractionCancelled()
             if process.returncode:
                 error = err[-3000:].decode("utf-8", errors="replace").strip()
                 raise RuntimeError(
-                    error or f"yt-dlp thoát với mã {process.returncode}."
+                    error or f"yt-dlp exited with code {process.returncode}."
                 )
             result = json.loads(out)
             if not isinstance(result, dict):
-                raise RuntimeError("yt-dlp không trả về metadata hợp lệ.")
+                raise RuntimeError("yt-dlp did not return valid metadata.")
             return result
         finally:
             selector.close()

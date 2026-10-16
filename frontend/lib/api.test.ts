@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { api, crawlPayload, detailMessage, query, count, duration, ApiError } from './api';
+import { api, crawlPayload, detailMessage, query, count, duration, date, dateTime, ApiError } from './api';
 import { initialForm } from './types';
 
 test('multiline sources are trimmed; duration in minutes becomes seconds', () => {
@@ -16,12 +16,12 @@ test('blank optional limit defaults to 100; direct URLs ignore native search fil
   assert.deepEqual(body.filters, {});
 });
 test('reject invalid source counts, numeric ranges and reversed dates', () => {
-  assert.throws(() => crawlPayload(initialForm), /ít nhất một nguồn/);
-  assert.throws(() => crawlPayload({ ...initialForm, sources: 'x', limit: '1001' }), /Giới hạn/);
-  assert.throws(() => crawlPayload({ ...initialForm, sources: 'x', duration_min: '20', duration_max: '3' }), /tối thiểu/);
-  assert.throws(() => crawlPayload({ ...initialForm, source_type:'playlist', sources:'https://www.youtube.com/playlist?list=PL_test', playlist_start: '0' }), /Vị trí playlist/);
-  assert.throws(() => crawlPayload({ ...initialForm, sources: 'x', date_after: '2026-02-01', date_before: '2026-01-01' }), /Ngày bắt đầu/);
-  assert.throws(() => crawlPayload({ ...initialForm, sources: Array.from({length:21}, (_,i) => String(i)).join('\n') }), /20 nguồn/);
+  assert.throws(() => crawlPayload(initialForm), /at least one source/);
+  assert.throws(() => crawlPayload({ ...initialForm, sources: 'x', limit: '1001' }), /limit/);
+  assert.throws(() => crawlPayload({ ...initialForm, sources: 'x', duration_min: '20', duration_max: '3' }), /minimum/);
+  assert.throws(() => crawlPayload({ ...initialForm, source_type:'playlist', sources:'https://www.youtube.com/playlist?list=PL_test', playlist_start: '0' }), /Playlist positions/);
+  assert.throws(() => crawlPayload({ ...initialForm, sources: 'x', date_after: '2026-02-01', date_before: '2026-01-01' }), /start date/);
+  assert.throws(() => crawlPayload({ ...initialForm, sources: Array.from({length:21}, (_,i) => String(i)).join('\n') }), /20 sources/);
 });
 test('API error details stay readable for strings and FastAPI validation arrays', () => {
   assert.equal(detailMessage('Nguồn không hợp lệ'), 'Nguồn không hợp lệ');
@@ -32,18 +32,19 @@ test('CSV and pages preserve scope, active grouping, selection and Unicode query
   assert.equal(parsed.searchParams.get('q'), 'kiến trúc'); assert.equal(parsed.searchParams.get('video_ids'),'x,y'); assert.equal(parsed.searchParams.get('status'),'keep'); assert.equal(parsed.searchParams.get('group_key'),'UC-test');
 });
 test('missing numeric metadata is a dash, while real zero stays zero', () => {
-  assert.equal(count(null), '—'); assert.equal(count(undefined), '—'); assert.equal(count(0),'0');
+  assert.equal(count(null), '—'); assert.equal(count(undefined), '—'); assert.equal(count(0),'0'); assert.equal(count(1234567), '1,234,567');
+  assert.equal(date('20261016'), '16 Oct 2026'); assert.match(dateTime('2026-10-16T12:00:00Z'), /16 Oct 2026/);
   assert.equal(duration(null),'—'); assert.equal(duration(0),'0:00'); assert.equal(duration(3605),'1:00:05');
 });
 test('network and HTTP failures never become fabricated successful records', async () => {
   const original = globalThis.fetch;
   try {
     globalThis.fetch = async () => { throw new TypeError('fetch failed'); };
-    await assert.rejects(api('/api/videos'), (error: unknown) => error instanceof ApiError && error.status === 0 && /Không kết nối/.test(error.message));
+    await assert.rejects(api('/api/videos'), (error: unknown) => error instanceof ApiError && error.status === 0 && /Unable to connect/.test(error.message));
     globalThis.fetch = async () => new Response(JSON.stringify({ detail: 'URL phải thuộc YouTube' }), { status:422 });
     await assert.rejects(api('/api/jobs'), /URL phải thuộc YouTube/);
     globalThis.fetch = async () => new Response('Bad gateway', { status:502 });
-    await assert.rejects(api('/api/health'), /Máy chủ chưa sẵn sàng/);
+    await assert.rejects(api('/api/health'), /server is unavailable/);
   } finally { globalThis.fetch = original; }
 });
 
@@ -75,5 +76,5 @@ test('resource searches omit incompatible video-only native filters and source-s
 test('resource-only searches ignore hidden invalid video prefilters but mixed URL collection keeps them', () => {
   const body=crawlPayload({...initialForm,source_type:'channel',sources:'nhạc vàng',duration_min:'100',duration_max:'2',views_min:'NaN',duration_preset:'long',content_types:['shorts']});
   assert.deepEqual(body.filters,{});
-  assert.throws(()=>crawlPayload({...initialForm,source_type:'channel',sources:'nhạc vàng\nhttps://www.youtube.com/@example',duration_min:'100',duration_max:'2'}),/tối thiểu/);
+  assert.throws(()=>crawlPayload({...initialForm,source_type:'channel',sources:'nhạc vàng\nhttps://www.youtube.com/@example',duration_min:'100',duration_max:'2'}),/minimum/);
 });

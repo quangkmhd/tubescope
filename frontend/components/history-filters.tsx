@@ -16,20 +16,20 @@ export function HistoryFilters({ from, to, onChange }: HistoryRange & {onChange:
   const month = range.from && monthRange(range.from.slice(0,7));
   function apply(next: HistoryRange) {
     setError(''); setRange(next);
-    if (next.from && next.to && next.from > next.to) { setError('Ngày bắt đầu không được sau ngày kết thúc.'); return; }
+    if (next.from && next.to && next.from > next.to) { setError('The start date must not be after the end date.'); return; }
     onChange(next);
   }
-  return <form className="history-filters" aria-label="Lọc lịch sử theo thời gian" onSubmit={event=>{event.preventDefault();apply(range);}}>
-    <ToggleGroup type="single" variant="outline" value={active} onValueChange={value=>value && apply(presets[value])} aria-label="Khoảng thời gian nhanh" className="history-presets">
-      {Object.entries({all:'Tất cả',today:'Hôm nay',week:'7 ngày qua',month:'Tháng này',previous:'Tháng trước'}).map(([value,label])=><ToggleGroupItem key={value} value={value}>{label}</ToggleGroupItem>)}
+  return <form className="history-filters" aria-label="Filter history by date" onSubmit={event=>{event.preventDefault();apply(range);}}>
+    <ToggleGroup type="single" variant="outline" value={active} onValueChange={value=>value && apply(presets[value])} aria-label="Date presets" className="history-presets">
+      {Object.entries({all:'All',today:'Today',week:'Last 7 days',month:'This month',previous:'Last month'}).map(([value,label])=><ToggleGroupItem key={value} value={value}>{label}</ToggleGroupItem>)}
     </ToggleGroup>
     <FieldGroup className="history-date-fields">
-      <Field><FieldLabel htmlFor="history-month">Chọn tháng</FieldLabel><Input id="history-month" name="history_month" type="month" value={month && month.from===range.from && month.to===range.to ? range.from.slice(0,7) : ''} onChange={event=>{const next=monthRange(event.target.value);if(next)setRange(next);}} /></Field>
-      <Field><FieldLabel htmlFor="history-from">Từ ngày</FieldLabel><Input id="history-from" name="history_from" type="date" value={range.from} onChange={event=>setRange({...range,from:event.target.value})} /></Field>
-      <Field><FieldLabel htmlFor="history-to">Đến ngày</FieldLabel><Input id="history-to" name="history_to" type="date" value={range.to} onChange={event=>setRange({...range,to:event.target.value})} /></Field>
-      <div className="history-filter-actions"><Button type="submit">Áp dụng</Button><Button type="button" variant="ghost" onClick={()=>apply({from:'',to:''})} disabled={!range.from && !range.to && !from && !to}>Xóa bộ lọc</Button></div>
+      <Field><FieldLabel htmlFor="history-month">Choose month</FieldLabel><Input id="history-month" name="history_month" type="month" value={month && month.from===range.from && month.to===range.to ? range.from.slice(0,7) : ''} onChange={event=>{const next=monthRange(event.target.value);if(next)setRange(next);}} /></Field>
+      <Field><FieldLabel htmlFor="history-from">From date</FieldLabel><Input id="history-from" name="history_from" type="date" value={range.from} onChange={event=>setRange({...range,from:event.target.value})} /></Field>
+      <Field><FieldLabel htmlFor="history-to">To date</FieldLabel><Input id="history-to" name="history_to" type="date" value={range.to} onChange={event=>setRange({...range,to:event.target.value})} /></Field>
+      <div className="history-filter-actions"><Button type="submit">Apply</Button><Button type="button" variant="ghost" onClick={()=>apply({from:'',to:''})} disabled={!range.from && !range.to && !from && !to}>Clear filters</Button></div>
     </FieldGroup>
-    <p className="helper-line">Chọn tháng hoặc nhập khoảng ngày rồi bấm Áp dụng. Lọc theo ngày tạo lượt thu thập, theo giờ địa phương.</p>
-    {error && <Alert variant="destructive"><AlertTitle>Khoảng ngày chưa hợp lệ</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
+    <p className="helper-line">Choose a month or enter a date range, then select Apply. Filters use the collection creation date in your local time zone.</p>
+    {error && <Alert variant="destructive"><AlertTitle>Invalid date range</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
   </form>;
 }
